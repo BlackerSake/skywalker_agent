@@ -6,6 +6,7 @@ class TestMessage:
     def __init__(self, content, role="user"):
         self.content = content
         self.role = role
+        
 message = []
 
 message.append("""(skywalker) j0hnny@the-only-skywalker:/Alpha/College_new/skywalker_agent$      
