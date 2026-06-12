@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 class Role(Enum):
     USER = "user"
     ASSISTANT = "assistant"
+    SYSTEM = "system"
 
 
 @dataclass(frozen=True)
@@ -30,3 +31,4 @@ class AgentState:
     messages: list[Message] = field(default_factory=list)
     loop_state: LoopState = field(default_factory=lambda: LoopState(LoopPhase.INIT))
     current_response: str | None = None
+    project_root: str | None = None

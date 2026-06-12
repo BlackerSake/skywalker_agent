@@ -1,6 +1,6 @@
 
 
-from skywalker.core import Message
+from skywalker.core import Message, Role
 import weakref
 
 class SimpleTokenizer:
@@ -63,7 +63,9 @@ class SimpleTokenizer:
         system_msgs = []
         user_msgs = []
         for msg in messages:
-            if msg.role == "system":
+            # 支持字符串和枚举两种类型
+            role_value = msg.role.value if hasattr(msg.role, 'value') else msg.role
+            if role_value == "system":
                 system_msgs.append(msg)
             else:
                 user_msgs.append(msg)
@@ -86,8 +88,7 @@ class SimpleTokenizer:
         user_tokens = [SimpleTokenizer.estimate_message_tokens(msg)
                       for msg in user_msgs]
         
-        total_tokens = (sum(user_tokens) + 
-                        SimpleTokenizer.OVERHEAD_PER_MESSAGE * len(messages) + 
+        total_tokens = (sum(user_tokens) + system_tokens +
                         SimpleTokenizer.SYSTEM_OVERHEAD)
 
         if total_tokens <= max_tokens:
@@ -108,6 +109,10 @@ class SimpleTokenizer:
     def clear_cache():
         """清除 token 估算缓存"""
         SimpleTokenizer._cache.clear()
+
+    def should_compress(self, messages: list[Message]) -> bool:
+        """是否需要压缩"""
+        return False
 
 
 """Minds
