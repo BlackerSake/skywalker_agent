@@ -35,7 +35,7 @@ def read_line_with_ctrlz(prompt: str) -> str | None:
 
 
 def main():
-    console.print("[bold orange1]Skywalker Agent[/bold orange1] - 按下 'Esc' 退出\n")
+    console.print("[bold orange1]Skywalker Agent[/bold orange1] - 按下 'Ctrl+Z' 退出\n")
 
     llm = AnthropicClient()
     state = AgentState()

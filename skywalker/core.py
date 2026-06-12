@@ -7,7 +7,7 @@ class Role(Enum):
     ASSISTANT = "assistant"
 
 
-@dataclass
+@dataclass(frozen=True)
 class Message:
     role: Role
     content: str
