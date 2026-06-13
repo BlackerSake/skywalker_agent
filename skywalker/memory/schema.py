@@ -91,11 +91,10 @@ def parse_memory_md(content: str) -> list[MemoryEntry]:
                 content_lines.append(line)
 
         entry_content = "\n".join(content_lines).strip()
-        entry_id = _generate_id(title, entry_content)
 
         entries.append(
             MemoryEntry(
-                id=entry_id,
+                id=title,  # 直接使用标题作为 id
                 type=mem_type,
                 content=entry_content,
                 importance=importance,

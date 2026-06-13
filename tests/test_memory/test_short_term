@@ -1,0 +1,172 @@
+import asyncio
+from unittest.mock import AsyncMock, MagicMock
+
+import pytest
+
+from skywalker.core import Message, Role
+from skywalker.memory.short_term import (
+    CompressorBase,
+    ConversationManager,
+    LLMCompressor,
+)
+
+
+class StubCompressor(CompressorBase):
+    """测试用压缩器，返回固定摘要"""
+
+    def __init__(self, summary: str = "compressed summary"):
+        self.summary = summary
+        self.call_count = 0
+        self.last_messages: list[Message] = []
+
+    async def compress(self, messages: list[Message]) -> str:
+        self.call_count += 1
+        self.last_messages = list(messages)
+        return self.summary
+
+
+def _run(coro):
+    """同步运行 async 函数的辅助"""
+    return asyncio.get_event_loop().run_until_complete(coro)
+
+
+class TestConversationManagerAddMessage:
+    def test_add_message_increases_token_count(self):
+        compressor = StubCompressor()
+        cm = ConversationManager(compressor, max_tokens=1000)
+        assert cm.total_tokens == 0
+
+        cm.add_message(Message(Role.USER, "hello world"))
+        assert cm.total_tokens > 0
+
+    def test_add_multiple_messages_accumulates(self):
+        compressor = StubCompressor()
+        cm = ConversationManager(compressor, max_tokens=1000)
+
+        cm.add_message(Message(Role.USER, "first"))
+        t1 = cm.total_tokens
+        cm.add_message(Message(Role.ASSISTANT, "second"))
+        t2 = cm.total_tokens
+        assert t2 > t1
+
+    def test_messages_property_returns_copy(self):
+        compressor = StubCompressor()
+        cm = ConversationManager(compressor, max_tokens=1000)
+        cm.add_message(Message(Role.USER, "hello"))
+
+        msgs = cm.messages
+        msgs.append(Message(Role.USER, "extra"))
+        assert len(cm.messages) == 1
+
+
+class TestShouldCompress:
+    def test_below_threshold_returns_false(self):
+        compressor = StubCompressor()
+        cm = ConversationManager(compressor, max_tokens=10000, compress_threshold=0.75)
+        cm.add_message(Message(Role.USER, "short message"))
+        assert cm.should_compress() is False
+
+    def test_above_threshold_returns_true(self):
+        compressor = StubCompressor()
+        cm = ConversationManager(compressor, max_tokens=10, compress_threshold=0.5)
+        # 添加足够多的消息使 token 超过阈值
+        for i in range(20):
+            cm.add_message(Message(Role.USER, f"message number {i} with some content"))
+        assert cm.should_compress() is True
+
+    def test_zero_max_tokens_returns_false(self):
+        compressor = StubCompressor()
+        cm = ConversationManager(compressor, max_tokens=0, compress_threshold=0.75)
+        cm.add_message(Message(Role.USER, "hello"))
+        assert cm.should_compress() is False
+
+
+class TestCompress:
+    def test_compress_reduces_message_count(self):
+        compressor = StubCompressor()
+        cm = ConversationManager(compressor, max_tokens=10000)
+
+        for i in range(10):
+            cm.add_message(Message(Role.USER, f"message {i}"))
+
+        before = len(cm.messages)
+        _run(cm.compress())
+        after = len(cm.messages)
+        assert after < before
+
+    def test_compress_inserts_summary_message(self):
+        compressor = StubCompressor(summary="test summary")
+        cm = ConversationManager(compressor, max_tokens=10000)
+
+        for i in range(6):
+            cm.add_message(Message(Role.USER, f"message {i}"))
+
+        _run(cm.compress())
+
+        summary_msgs = [m for m in cm.messages if "[SUMMARY]" in m.content]
+        assert len(summary_msgs) == 1
+        assert summary_msgs[0].role == Role.SYSTEM
+
+    def test_compress_preserves_recent_messages(self):
+        compressor = StubCompressor()
+        cm = ConversationManager(compressor, max_tokens=10000)
+
+        for i in range(6):
+            cm.add_message(Message(Role.USER, f"message {i}"))
+
+        _run(cm.compress())
+
+        # 最近的消息应保留
+        contents = [m.content for m in cm.messages]
+        assert "message 5" in contents
+
+    def test_compress_does_not_compress_system_messages(self):
+        compressor = StubCompressor()
+        cm = ConversationManager(compressor, max_tokens=10000)
+
+        cm.add_message(Message(Role.SYSTEM, "system instruction"))
+        for i in range(6):
+            cm.add_message(Message(Role.USER, f"message {i}"))
+
+        before_system = [m for m in cm.messages if m.role == Role.SYSTEM]
+        _run(cm.compress())
+        after_system = [m for m in cm.messages if m.role == Role.SYSTEM]
+
+        # 系统消息数量应增加（原系统消息 + 摘要消息）
+        assert len(after_system) >= len(before_system)
+
+    def test_compress_calls_compressor(self):
+        compressor = StubCompressor()
+        cm = ConversationManager(compressor, max_tokens=10000)
+
+        for i in range(6):
+            cm.add_message(Message(Role.USER, f"message {i}"))
+
+        _run(cm.compress())
+        assert compressor.call_count == 1
+        assert len(compressor.last_messages) > 0
+
+    def test_compress_with_no_messages_does_nothing(self):
+        compressor = StubCompressor()
+        cm = ConversationManager(compressor, max_tokens=10000)
+        _run(cm.compress())
+        assert compressor.call_count == 0
+
+    def test_compress_with_only_system_messages_does_nothing(self):
+        compressor = StubCompressor()
+        cm = ConversationManager(compressor, max_tokens=10000)
+        cm.add_message(Message(Role.SYSTEM, "system only"))
+        _run(cm.compress())
+        assert compressor.call_count == 0
+
+    def test_compress_reduces_token_count(self):
+        compressor = StubCompressor()
+        cm = ConversationManager(compressor, max_tokens=10000)
+
+        for i in range(10):
+            cm.add_message(Message(Role.USER, f"message number {i} with substantial content for testing"))
+
+        before_tokens = cm.total_tokens
+        _run(cm.compress())
+        after_tokens = cm.total_tokens
+        assert after_tokens < before_tokens
