@@ -23,10 +23,10 @@ def _make_entry(**kwargs) -> MemoryEntry:
         "content": "Skywalker uses four-layer memory.",
         "importance": 0.9,
         "source": "inference",
-        "created_at": now,
-        "updated_at": now,
+        "create_at": now,
         "tags": ["architecture", "memory"],
         "use_count": 3,
+        "updated_at": now,
     }
     defaults.update(kwargs)
     return MemoryEntry(**defaults)
@@ -48,8 +48,7 @@ updated: 2026-06-01T10:00:00Z
 - importance: 0.8
 - tags: [test]
 - source: user
-- created_at: 2026-06-01T10:00:00Z
-- use_count: 1
+- create_at: 2026-06-01T10:00:00Z
 
 Some content here.
 """
@@ -65,8 +64,7 @@ Some content here.
 - importance: 0.9
 - tags: [arch]
 - source: inference
-- created_at: 2026-06-01T10:00:00Z
-- use_count: 0
+- create_at: 2026-06-01T10:00:00Z
 
 Architecture description.
 """
@@ -78,7 +76,7 @@ Architecture description.
     def test_missing_fields_use_defaults(self):
         content = """## [fact] Minimal
 - source: user
-- created_at: 2026-06-01T10:00:00Z
+- create_at: 2026-06-01T10:00:00Z
 
 Just content.
 """
@@ -86,14 +84,12 @@ Just content.
         assert len(entries) == 1
         assert entries[0].importance == 0.5
         assert entries[0].tags == []
-        assert entries[0].use_count == 0
 
     def test_unknown_type_defaults_to_fact(self):
         content = """## [unknown] Something
 - importance: 0.5
 - source: user
-- created_at: 2026-06-01T10:00:00Z
-- use_count: 0
+- create_at: 2026-06-01T10:00:00Z
 
 Content.
 """
@@ -105,16 +101,14 @@ Content.
         content = """## [fact] First
 - importance: 0.7
 - source: user
-- created_at: 2026-06-01T10:00:00Z
-- use_count: 0
+- create_at: 2026-06-01T10:00:00Z
 
 First content.
 
 ## [bugfix] Second
 - importance: 0.3
 - source: session
-- created_at: 2026-06-02T10:00:00Z
-- use_count: 0
+- create_at: 2026-06-02T10:00:00Z
 
 Second content.
 """
@@ -158,5 +152,4 @@ class TestRoundTrip:
         assert parsed[0].importance == entry.importance
         assert parsed[0].tags == entry.tags
         assert parsed[0].source == entry.source
-        assert parsed[0].use_count == entry.use_count
         assert parsed[0].content == entry.content

@@ -5,11 +5,13 @@ import pytest
 from skywalker.memory.base import MemoryEntry, MemoryType, MemoryStore
 
 """
-核心测试场景：
-
-MemoryType 枚举值映射正确（.value 为小写字符串）
-MemoryEntry 构造时 tags 默认为空列表，多个实例不共享同一列表
-MemoryEntry 的 importance 范围验证（0.0~1.0）
+  test_base.py — 测试"地基"数据结构
+  
+  测的是 MemoryEntry 这个数据类能不能正常工作：
+  - 枚举类型 MemoryType 的值对不对（FACT 对应 "fact")
+  - 创建 MemoryEntry 时，标签默认是空列表，不会被多个实例共享
+  - 重要性字段 importance 能接受 0.0 到 1.0
+  - 抽象类 MemoryStore 不能直接实例化（只能被继承）
 
 """
 class TestMemoryType:
@@ -37,7 +39,9 @@ class TestMemoryEntry:
             "content": "test content",
             "importance": 0.5,
             "source": "user",
-            "created_at": now,
+            "create_at": now,
+            "tags": [],
+            "use_count": 0,
             "updated_at": now,
         }
         defaults.update(kwargs)

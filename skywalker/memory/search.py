@@ -25,27 +25,31 @@ def score_entry(entry: MemoryEntry,
     if now is None:
         now = datetime.now(timezone.utc)
     
-    # 构建 meta tokens (tags +type)
+    # 构建 meta tokens (tags + type)
     meta_text = " ".join(entry.tags) + " " + entry.type.value
     meta_tokens = tokenize(meta_text)
-    
-    meta_hits = sum(1 for t in query_tokens if t in meta_tokens)
+
+    meta_hits = sum(1 for t in meta_tokens if t in query_tokens)
     meta_hits = meta_hits * 2.0
 
-    # 构建 content tokens    
+    # 构建 content tokens
     content_tokens = tokenize(entry.content)
     content_hits = sum(1 for t in query_tokens if t in content_tokens)
+
+    # 如果没有匹配，返回 0
+    if meta_hits == 0 and content_hits == 0:
+        return 0.0
 
     # 重要性权重得分
     importance_score = entry.importance * 0.4
 
     # 使用频率
-    use_score = min(entry.user_count /10 , 0.5)
+    use_score = min(entry.use_count / 10, 0.5)
 
     # 时间权重得分
     recency_boost = 0.0
-    if entry.updatate_at:
-        age = now - entry.updatate_at
+    if entry.updated_at:
+        age = now - entry.updated_at
         if age < timedelta(days=14):
             recency_boost = 0.3
         elif age < timedelta(days=30):

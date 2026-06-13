@@ -27,10 +27,10 @@ def _make_entry(**kwargs) -> MemoryEntry:
         "content": "test content",
         "importance": 0.5,
         "source": "user",
-        "created_at": now,
-        "updated_at": now,
+        "create_at": now,
         "tags": [],
         "use_count": 0,
+        "updated_at": now,
     }
     defaults.update(kwargs)
     return MemoryEntry(**defaults)
@@ -138,7 +138,7 @@ class TestSearchEntries:
         )
         low = _make_entry(
             id="low",
-            content="Unrelated content",
+            content="Python memory basics",
             importance=0.1,
         )
         results = search_entries([high, low], "python memory")

@@ -17,8 +17,10 @@ class MemoryEntry:
     content: str
     importance: float # 0.0-1.0
     source: str  #记录记忆来源
-    create_at:datetime
+    create_at: datetime
     tags: list[str] = field(default_factory=list)
+    use_count: int = 0
+    updated_at: datetime | None = None
 
 class MemoryStore(ABC):
     @abstractmethod

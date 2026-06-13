@@ -7,9 +7,6 @@ import time
 from turtle import heading
 from typing import Optional
 
-from pydantic.type_adapter import R
-from rich.ansi import line
-from rich.live import source
 from skywalker.memory.base import MemoryEntry, MemoryType
 
 # 正则：匹配 ## [type] Title 格式的标题行
@@ -44,7 +41,7 @@ def parse_memory_md(content: str) -> list[MemoryEntry]:
         lines = section.split("\n")
         
         # 解析标题行
-        heading = line[0]
+        heading = lines[0]
         hm = _HEADING_RE.match(heading)
         if not hm:
             continue # 不是以'## [type] Title'为开头的行，跳过
@@ -61,8 +58,7 @@ def parse_memory_md(content: str) -> list[MemoryEntry]:
         importance = 0.5
         tags: list[str] = []
         source = "inference"
-        created_at = datetime.now(timezone.utc)
-        user_count = 0
+        create_at = datetime.now(timezone.utc)
         content_lines: list[str] = []
         in_meta = True
 
@@ -81,41 +77,33 @@ def parse_memory_md(content: str) -> list[MemoryEntry]:
                         tags = _parse_tags(value)
                     elif key == "source":
                         source = value
-                    elif key == "created_at":
+                    elif key == "create_at":
                         try:
-                            created_at = datetime.fromisoformat(value)
-                        except ValueError:
-                            pass
-                    elif key == "user_count":
-                        try:
-                            user_count = int(value)
+                            create_at = datetime.fromisoformat(value)
                         except ValueError:
                             pass
                     continue
                 else:
                     in_meta = False
-        
-        if in_meta is False and not line.strip() and not content_lines:
-            in_meta = None  # 没有正文(空行)，跳过
-            continue
-        content_lines.append(line)
-    
-    entry_content = "\n".join(content_lines).strip()
-    entry_id = _generate_id(title, entry_content)
 
-    entries.append(
-        MemoryEntry(
-            id=entry_id,
-            type=mem_type,
-            title=title,
-            importance=importance,
-            tags=tags,
-            source=source,
-            created_at=created_at,
-            user_count=user_count,
-            content=entry_content,
+            # 只有非元数据行才添加到 content_lines
+            if not in_meta:
+                content_lines.append(line)
+
+        entry_content = "\n".join(content_lines).strip()
+        entry_id = _generate_id(title, entry_content)
+
+        entries.append(
+            MemoryEntry(
+                id=entry_id,
+                type=mem_type,
+                content=entry_content,
+                importance=importance,
+                source=source,
+                create_at=create_at,
+                tags=tags,
+            )
         )
-    )
     return entries
 
 def serialize_memory_md(entries: list[MemoryEntry],
@@ -127,30 +115,29 @@ def serialize_memory_md(entries: list[MemoryEntry],
     parts: list[str] = []
 
     # frontmatter
-    parts.append("---\n")
+    parts.append("---")
     if project:
-        parts.append(f"project: {project}\n")
-    parts.append(f"version: {version}\n")
-    parts.append(f"updated: {now}\n")
-    parts.append("---\n")
+        parts.append(f"project: {project}")
+    parts.append(f"version: {version}")
+    parts.append(f"updated: {now}")
+    parts.append("---")
 
     #
     sorted_entries = sorted(entries, key=lambda e: e.importance, reverse=True)
     for entry in sorted_entries:
         # 标题行
-        parts.append(f"## [{entry.type.value}] {entry.id}\n")
+        parts.append(f"## [{entry.type.value}] {entry.id}")
 
         # 元数据行
-        parts.append(f"- importance: {entry.importance}\n")
+        parts.append(f"- importance: {entry.importance}")
         if entry.tags:
-            parts.append(f"- tags: {','.join(entry.tags)}\n")
-        parts.append(f"- source: {entry.source}\n")
-        parts.append(f"- created_at: {entry.created_at.strftime('%Y-%m-%dT%H:%M:%SZ')}\n")
-        parts.append(f"- user_count: {entry.user_count}\n")
+            parts.append(f"- tags: {','.join(entry.tags)}")
+        parts.append(f"- source: {entry.source}")
+        parts.append(f"- create_at: {entry.create_at.strftime('%Y-%m-%dT%H:%M:%SZ')}")
 
         # 正文
         parts.append(entry.content)
-        parts.append("\n")
+        parts.append("")
     return "\n".join(parts)
 
 def _generate_id(title: str , content: str) -> str:
@@ -164,7 +151,11 @@ def _parse_tags(raw: str) -> list[str]:
     """解析[tag1, tag2] 格式的 tags 字符串"""
     raw = raw.strip()
     if raw.startswith("[") and raw.endswith("]"):
-        return raw[1:-1]
+        # 解析 [tag1, tag2] 格式
+        inner = raw[1:-1].strip()
+        if not inner:
+            return []
+        return [t.strip() for t in inner.split(",") if t.strip()]
     if not raw:
         return []
     return [t.strip() for t in raw.split(",") if t.strip()]
