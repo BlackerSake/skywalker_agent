@@ -22,6 +22,21 @@ class Settings:
     # 项目配置
     project_root: str = "."
 
+    # 工具执行配置
+    tool_timeout: int = 30 
+    shell_max_output_tokens: int = 5000
+    sandbox_enabled: bool = True
+    sandbox_dir: str = ".skywalker-sandbox"
+
+    # 权限规则
+    # 直接拒绝的shell
+    shell_deny_patterns: list[str] = [
+        "rm -rf /", "dd if=", "mkfs", ":(){ :|:& };:"
+    ]
+    # 需要用户确认的命令
+    shell_ask_patterns: list[str] = [   
+    "rm ", "mv ", "chmod ", "chown ", "sudo "
+    ]
 
 # 全局设置实例
 settings = Settings()

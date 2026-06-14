@@ -17,7 +17,12 @@ class Message:
 class LoopPhase(Enum):
     INIT = "init"
     THINKING = "thinking"
+    PARSING = "parsing"
+    EXECUTING = "executing"
+    OBSERVING = "observing"
+    COMPRESSING = "compressing"
     TERMINATED = "terminated"
+
 
 
 @dataclass
