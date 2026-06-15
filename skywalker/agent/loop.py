@@ -13,8 +13,8 @@ __all__ = ["AgentState", "LoopPhase", "LoopState", "Message", "Role"]
 SYSTEM_PROMPT = "你是一个有用的助手。简洁回答问题。"
 
 
-async def run_loop(state: AgentState, 
-                   llm: LLMClient, 
+async def run_loop(state: AgentState,
+                   llm: LLMClient,
                    user_input: str,
                    conv_manager: ConversationManager | None = None,
                    memory_manager: MemoryManager | None = None,
@@ -22,62 +22,66 @@ async def run_loop(state: AgentState,
                    registry: ToolRegistry | None = None,
                    executor: ToolExecutor | None = None,
                    ) -> AgentState:
-    """运行一次完整的对话循环：INIT → THINKING → TERMINATED"""
+    """运行完整的对话循环，支持多轮 Think→Act→Observe"""
 
     state.messages.append(Message(Role.USER, user_input))
-    state.loop_state.phase = LoopPhase.THINKING
-
-    # 使用会话管理器的消息列表（如果提供）
-    messages = conv_manager.messages if conv_manager else state.messages
     prompt = system_prompt or SYSTEM_PROMPT
 
     try:
-        # THINKING: 调用 LLM  获取 LLM 响应
-        tool_schema = registry.get_schema() if registry else None
-        response = llm.chat(messages, system=prompt, tools = tool_schema)
-        state.loop_state.phase = LoopPhase.PARSING
+        while True:
+            state.loop_state.phase = LoopPhase.THINKING
+            messages = conv_manager.messages if conv_manager else state.messages
+            tool_schema = registry.get_schema() if registry else None
+            response = llm.chat(messages, system=prompt, tools=tool_schema)
+            state.loop_state.phase = LoopPhase.PARSING
 
-        # PARSING: 检查是否有 tool 调用
-        if response.tool_calls and executor and registry:
+            # 无工具调用 → 正常结束
+            if not response.tool_calls or not executor or not registry:
+                state.messages.append(Message(Role.ASSISTANT, response.content))
+                if conv_manager:
+                    conv_manager.add_message(Message(Role.ASSISTANT, response.content))
+                    if conv_manager.should_compress():
+                        await conv_manager.compress()
+                        state.messages = conv_manager.messages
+                state.current_response = response.content
+                state.loop_state.phase = LoopPhase.TERMINATED
+                return state
+
+            # 有工具调用 → 执行
             state.loop_state.phase = LoopPhase.EXECUTING
-
-            # EXECUTING: 执行 tool 调用
             results = await executor.run_all(response.tool_calls, registry)
             state.loop_state.phase = LoopPhase.OBSERVING
 
-            # OBSERVING: 观察 tool 调用结果,将 结果添加到messages中
-            state.messages.append(Message(Role.ASSISTANT, response.content or ""))
-            for tc, result in zip(response.tool_calls, results):
-                if isinstance(result, ToolResult):
-                    content = result.output
-                else:
-                    content = f"Error: {result.error}"
-                state.messages.append(Message(Role.TOOL, content, tool_call_id=tc.id))
+            # 构造 assistant 消息（text + tool_use blocks）
+            assistant_content = []
+            if response.content:
+                assistant_content.append({"type": "text", "text": response.content})
+            for tc in response.tool_calls:
+                assistant_content.append({
+                    "type": "tool_use",
+                    "id": tc.id,
+                    "name": tc.name,
+                    "input": tc.arguments,
+                })
+            state.messages.append(Message(Role.ASSISTANT, assistant_content))
 
-            # 更新 会话管理器
+            # 构造 tool_result 消息（合并为一条 user 消息）
+            tool_results = []
+            for tc, result in zip(response.tool_calls, results):
+                output = result.output if isinstance(result, ToolResult) else f"Error: {result.error}"
+                tool_results.append({"type": "tool_result", "tool_use_id": tc.id, "content": output})
+            state.messages.append(Message(Role.USER, tool_results))
+
+            # 更新会话管理器
             if conv_manager:
-                for msg in state.messages[-len(response.tool_calls) - 1:]:
+                for msg in state.messages[-2:]:
                     conv_manager.add_message(msg)
                 if conv_manager.should_compress():
                     await conv_manager.compress()
                     state.messages = conv_manager.messages
-            
-            # 转到 THINKING, 继续下一轮
-            state.loop_state.phase = LoopPhase.THINKING
-            return state
 
-        state.messages.append(Message(Role.ASSISTANT, response.content))
+            # 继续循环，再次调用 LLM 获取最终回复
 
-        # 会话管理器追加消息
-        if conv_manager:
-            conv_manager.add_message(Message(Role.ASSISTANT, response.content))
-            # 检查是否需要压缩
-            if conv_manager.should_compress():
-                await conv_manager.compress()
-                state.messages = conv_manager.messages
-
-        state.current_response = response.content
-        state.loop_state.phase = LoopPhase.TERMINATED
     except Exception as e:
         state.loop_state.error = str(e)
         state.loop_state.phase = LoopPhase.TERMINATED

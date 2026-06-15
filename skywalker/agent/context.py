@@ -23,8 +23,8 @@ class SimpleTokenizer:
         if message in SimpleTokenizer._cache:
             return SimpleTokenizer._cache[message]
         
-        chars = len(message.content)
-        chinese_ratio = sum(1 for c in message.content if '\u4e00' <= c <= '\u9fff') / max(chars, 1)
+        chars = len(message.text_content)
+        chinese_ratio = sum(1 for c in message.text_content if '\u4e00' <= c <= '\u9fff') / max(chars, 1)
         
         if chinese_ratio > 0.75:
             result = int(chars / SimpleTokenizer.RATIOS["zh"]) # 中文文本 /2
