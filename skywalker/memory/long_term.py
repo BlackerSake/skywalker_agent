@@ -51,18 +51,32 @@ class LongTermMemory:
     
 class MemoryManager:
     """管理项目级和用户级记忆"""
-    def __init__(self, project_memory: LongTermMemory, user_memory: LongTermMemory,compressor):
+    def __init__(self, project_memory: LongTermMemory, user_memory: LongTermMemory, compressor, gate=None):
         self._project_memory = project_memory
         self._user_memory = user_memory
         self._compressor = compressor
-        
+        self._gate = gate  # MemoryGate 实例，可选
+
     async def on_shutdown(self, state) -> bool:
-        """对话结束时, 提取关键信息并写记忆文件。返回是否实际保存了记忆。"""
+        """对话结束时, 通过 Gate 过滤后写回记忆。返回是否实际保存了记忆。"""
         from skywalker.core import Message, Role
 
         if not state.messages:
             return False
-        # 使用压缩器进行压缩
+
+        # ── Gate 过滤 ──
+        if self._gate:
+            gate_result = await self._gate.evaluate(state.messages)
+            if not gate_result.passed:
+                return False
+
+            # Gate 通过且提取了条目 → 直接写入
+            if gate_result.entries:
+                for entry in gate_result.entries:
+                    self._project_memory.add_entry(entry)
+                return True
+
+        # ── Fallback：无 Gate 或 Gate 无条目时，用压缩器 ──
         try:
             summary = await self._compressor.compress(state.messages)
         except Exception:
@@ -70,17 +84,17 @@ class MemoryManager:
 
         if not summary:
             return False
+
         now = datetime.now(timezone.utc)
-        # 写入项目记忆
         project_entry = MemoryEntry(
-            id = f"session-{now.strftime('%Y%m%d%H%M%S')}",
-            type = MemoryType.FACT,
+            id=f"session-{now.strftime('%Y%m%d%H%M%S')}",
+            type=MemoryType.FACT,
             content=summary,
-            importance = 0.6,
-            source = "session",
-            create_at = now,
+            importance=0.6,
+            source="session",
+            created_at=now,
             updated_at=now,
-            tags = ["session-summary"],
+            tags=["session-summary"],
         )
         self._project_memory.add_entry(project_entry)
         return True

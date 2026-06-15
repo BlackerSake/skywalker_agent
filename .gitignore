@@ -2,6 +2,8 @@
 
 .claude/
 
+.skywalker/
+
 __pycache__
 
 version-design-markdown-creator/

@@ -32,7 +32,7 @@ class LLMCompressor(CompressorBase):
         context_parts = []
         for msg in messages:
             role_name = msg.role.value.upper()
-            context_parts.append(f"{role_name}: {msg.content}")
+            context_parts.append(f"{role_name}: {msg.text_content}")
         context_text = "\n".join(context_parts)
 
         summary_prompt = (
@@ -42,7 +42,7 @@ class LLMCompressor(CompressorBase):
         )
 
         summary_msg = Message(Role.USER, summary_prompt)
-        return self.llm.chat([summary_msg])
+        return self.llm.chat([summary_msg]).content
 
 class SubAgentCompressor(CompressorBase):
     """子代理压缩器"""

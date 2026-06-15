@@ -31,7 +31,7 @@ dev = [
 ]
 
 [project.scripts]
-skywalker = "skywalker.cli.main:main"
+skywalker = "skywalker.cli.main:cli_main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["skywalker"]
