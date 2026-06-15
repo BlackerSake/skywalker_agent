@@ -15,6 +15,7 @@ from skywalker.memory import (
     ConversationManager,
     LLMCompressor,
     LongTermMemory,
+    MemoryGate,
     MemoryManager,
 )
 from skywalker.tools import (
@@ -91,7 +92,8 @@ def _init_memory(project_root: str, llm: AnthropicClient):
     user_memory = LongTermMemory(user_memory_path)
 
     compressor = LLMCompressor(llm)
-    memory_manager = MemoryManager(project_memory, user_memory, compressor)
+    gate = MemoryGate(llm=llm)
+    memory_manager = MemoryManager(project_memory, user_memory, compressor, gate=gate)
 
     return memory_manager, compressor
 

@@ -1,8 +1,41 @@
-"""skywalker.tools.base 测试"""
+"""skywalker.tools.base + skywalker.core.Message 测试"""
 import pytest
 from abc import ABC
 
+from skywalker.core import Message, Role
 from skywalker.tools.base import ToolBase, ToolResult, ToolError
+
+
+# ── Message.text_content ────────────────────────────────────
+
+class TestMessageTextContent:
+    def test_str_content(self):
+        msg = Message(Role.USER, "hello")
+        assert msg.text_content == "hello"
+
+    def test_list_content_with_text_blocks(self):
+        content = [
+            {"type": "text", "text": "hello"},
+            {"type": "text", "text": "world"},
+        ]
+        msg = Message(Role.ASSISTANT, content)
+        assert msg.text_content == "hello world"
+
+    def test_list_content_with_tool_result(self):
+        """tool_result block 没有 text 字段，text_content 应忽略"""
+        content = [
+            {"type": "tool_result", "tool_use_id": "tc1", "content": "output"},
+        ]
+        msg = Message(Role.USER, content)
+        assert msg.text_content == ""
+
+    def test_empty_str_content(self):
+        msg = Message(Role.ASSISTANT, "")
+        assert msg.text_content == ""
+
+    def test_empty_list_content(self):
+        msg = Message(Role.USER, [])
+        assert msg.text_content == ""
 
 
 # ── ToolResult ──────────────────────────────────────────────
