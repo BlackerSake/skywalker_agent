@@ -42,7 +42,7 @@ class LLMCompressor(CompressorBase):
         )
 
         summary_msg = Message(Role.USER, summary_prompt)
-        return self.llm.chat([summary_msg])
+        return self.llm.chat([summary_msg]).content
 
 class SubAgentCompressor(CompressorBase):
     """子代理压缩器"""

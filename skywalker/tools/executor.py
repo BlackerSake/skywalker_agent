@@ -9,7 +9,7 @@ import logging
 from unittest import result
 from skywalker.tools.base import ToolBase, ToolResult, ToolError
 from skywalker.tools.registry import ToolRegistry
-from skywalker.tools.sandbox import GitWorktree
+from skywalker.tools.sandbox import GitWorkTree
 from skywalker.config.settings import settings
 from skywalker.llm.base import ToolCall
 
@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 class ToolExecutor:
     """工具执行的三层防护入口：AST 拦截 → 权限确认 → 执行"""
-    def __init__(self, sandbox: GitWorktree | None = None):
+    def __init__(self, sandbox: GitWorkTree | None = None):
         self.sandbox = sandbox
     async def run_all(
             self, tool_calls: list[ToolCall], registry: ToolRegistry

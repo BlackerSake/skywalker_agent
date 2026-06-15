@@ -6,12 +6,14 @@ class Role(Enum):
     USER = "user"
     ASSISTANT = "assistant"
     SYSTEM = "system"
+    TOOL = "tool"
 
 
 @dataclass(frozen=True)
 class Message:
     role: Role
     content: str
+    tool_call_id: str | None = None
 
 
 class LoopPhase(Enum):

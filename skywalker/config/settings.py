@@ -1,6 +1,7 @@
 from dataclasses import dataclass, field
 import os
-
+from dotenv import load_dotenv
+load_dotenv()
 @dataclass
 class Settings:
     """Skywalker 全局配置"""
@@ -30,13 +31,13 @@ class Settings:
 
     # 权限规则
     # 直接拒绝的shell
-    shell_deny_patterns: list[str] = [
+    shell_deny_patterns: list[str] = field(default_factory=lambda: [
         "rm -rf /", "dd if=", "mkfs", ":(){ :|:& };:"
-    ]
+    ])
     # 需要用户确认的命令
-    shell_ask_patterns: list[str] = [   
-    "rm ", "mv ", "chmod ", "chown ", "sudo "
-    ]
+    shell_ask_patterns: list[str] = field(default_factory=lambda: [
+        "rm ", "mv ", "chmod ", "chown ", "sudo "
+    ])
 
 # 全局设置实例
 settings = Settings()
