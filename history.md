@@ -1,3 +1,4 @@
+明天星期三
 (skywalker) j0hnny@the-only-skywalker:/Alpha/College_new/skywalker_agent$ skywalker
 Skywalker Agent - 按下 'Ctrl+Z' 退出
 

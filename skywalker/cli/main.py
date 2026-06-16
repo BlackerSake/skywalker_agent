@@ -7,6 +7,10 @@ from prompt_toolkit.formatted_text import HTML
 from prompt_toolkit.key_binding import KeyBindings
 from rich.console import Console
 
+from skywalker.commands.builtin import register_builtin_commands
+from skywalker.commands.registry import CommandRegistry
+from skywalker.session.manager import SessionManager
+from skywalker.session.store import SessionStore
 from skywalker.config.settings import settings
 from skywalker.core import AgentState, Message, Role
 from skywalker.agent.loop import run_loop, shutdown
@@ -88,7 +92,8 @@ def _init_memory(project_root: str, llm: AnthropicClient):
     project_memory_path = os.path.join(memory_dir, PROJECT_MEMORY_FILE)
     project_memory = LongTermMemory(project_memory_path)
 
-    user_memory_path = os.path.join(memory_dir, USER_MEMORY_FILE)
+    user_memory_path = os.path.expanduser("/Alpha/College_new/skywalker_agent/.skywalker/user/USER.md")
+    os.makedirs(os.path.dirname(user_memory_path), exist_ok=True)
     user_memory = LongTermMemory(user_memory_path)
 
     compressor = LLMCompressor(llm)
@@ -108,6 +113,16 @@ def _init_tools(project_root: str) -> tuple[ToolRegistry, ToolExecutor]:
     sandbox = GitWorkTree(project_root) if settings.sandbox_enabled else None
     executor = ToolExecutor(sandbox=sandbox)
     return registry, executor
+
+def _init_session(memory_manager: MemoryManager) -> tuple[SessionManager, CommandRegistry]:
+    """初始化会话系统 和 命令系统"""
+    store = SessionStore()
+    session_manager = SessionManager(store, memory_manager)
+    registry = CommandRegistry()
+    register_builtin_commands(registry, session_manager, memory_manager)
+
+    return store, session_manager, registry
+
 
 
 def _build_system_prompt(memory_manager: MemoryManager, registry: ToolRegistry | None = None) -> str:
@@ -152,33 +167,59 @@ async def main():
     # 构建带记忆和工具的系统提示
     system_prompt = _build_system_prompt(memory_manager, registry)
 
+    # 初始化会话状态和命令系统
+    store, session_manager, command_registry = _init_session(memory_manager)
+    
+    # 新建会话
+    session_id = session_manager.new_session(project_root)
+    print_msg(f"已创建会话 {session_id}\n", "dim")
+
     state = AgentState(project_root=project_root)
 
     while True:
         user_input = await read_line_with_ctrlz(HTML("<ansiblue><b>You:</b></ansiblue> "))
         if user_input is None:
+            # Ctrl+Z 退出：保存会话 + 记忆
+            await session_manager.save_session()
             saved = await memory_manager.on_shutdown(state)
             if saved:
-                print("已退出，记忆已保存！")
+                print("已退出，会话和记忆已保存！")
             else:
-                print("已退出。")
+                print("已退出，会话已保存。")
             break
 
         if user_input.strip().lower() == "exit":
+            # exit 退出：保存会话 + 记忆
+            await session_manager.save_session()
             saved = await memory_manager.on_shutdown(state)
             if saved:
-                print("记忆已保存！")
+                print("会话和记忆已保存！")
             else:
-                print("已退出。")
+                print("会话已保存。")
             break
+
+        if user_input.strip().startswith("/"):
+            # /exit 直接走退出流程
+            if user_input.strip() == "/exit":
+                await session_manager.save_session()
+                saved = await memory_manager.on_shutdown(state)
+                print("会话已保存，再见！")
+                break
+            result = await command_registry.dispatch(user_input, state)
+            if result.output:
+                print(result.output)
+            if not result.should_complete:
+                break
+            continue
 
         if not user_input.strip():
             continue
 
-        # 添加用户消息到会话管理器
+        # 添加用户消息到会话管理器（同步到三个地方）
         user_msg = Message(Role.USER, user_input)
         conv_manager.add_message(user_msg)
         state.messages.append(user_msg)
+        session_manager.add_message(user_msg)
 
         # 运行 loop（内部处理 LLM 调用、工具执行、压缩检查）
         state = await run_loop(
@@ -191,6 +232,9 @@ async def main():
         )
 
         if state.current_response:
+            # 同步 assistant 回复到 session_manager
+            assistant_msg = Message(Role.ASSISTANT, state.current_response)
+            session_manager.add_message(assistant_msg)
             print_msg("Agent: ", "bold cyan")
             print(f"{state.current_response}\n")
 

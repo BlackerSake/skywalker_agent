@@ -10,7 +10,7 @@ class CommandRegistry:
     def __init__(self):
         self._commands: dict[str, CommandBase] = {}
 
-    def resigister(self, command: CommandBase) -> None:
+    def register(self, command: CommandBase) -> None:
         """注册命令"""
         self._commands[command.name] = command
 

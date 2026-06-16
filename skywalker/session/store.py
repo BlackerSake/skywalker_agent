@@ -23,7 +23,7 @@ class SessionMeta:
 
 class SessionStore:
     """负责单个会话的磁盘 I/O，只做文件操作，不管生命周期"""
-    def __init__(self, base_dir: str = "~/.skywalker/sessions"):
+    def __init__(self, base_dir: str = "/Alpha/College_new/skywalker_agent/.skywalker/sessions"):
         self._base_dir = Path(os.path.expanduser(base_dir))
 
     def create_session_dir(self, session_id: str) -> Path:
@@ -64,17 +64,17 @@ class SessionStore:
             encoding="utf-8"
         )
     
-    def load_messages(self, session_id: str) -> list[Message] | None:
-        """从文件加载 会话消息,不存在就返回 None"""
+    def load_messages(self, session_id: str) -> list[Message]:
+        """从文件加载会话消息，不存在返回空列表"""
         path = self._base_dir / session_id / "messages.json"
         if not path.exists():
-            return None
+            return []
         data = json.loads(path.read_text(encoding="utf-8"))
         return [
             Message(
                 role=Role(item["role"]),
                 content=item["content"],
-                tool_call_id=item.get["tool_call_id"],
+                tool_call_id=item.get("tool_call_id"),
             )
             for item in data
         ]

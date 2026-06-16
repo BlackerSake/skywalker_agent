@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from rich.pretty import data
 
 from skywalker.core import Message, Role
 from skywalker.memory.long_term import MemoryManager
@@ -34,7 +33,7 @@ class SessionManager:
         now = datetime.now(timezone.utc)
         session_id = now.strftime("%Y%m%d%H%M%S")
         self._current_session_id = session_id
-        self.messages = []
+        self._messages = []
 
         meta = SessionMeta(
             session_id=session_id,
@@ -54,19 +53,25 @@ class SessionManager:
     async def save_session(self, title: str | None = None) -> SessionMeta:
         """保存会话: 写 messages.json + 更新 meta.json + 写 memory.md"""
         if not self._current_session_id:
-            raise ValueError("No current session")
+            self._current_session_id = "Default Session"
         session_id = self._current_session_id
         now = datetime.now(timezone.utc)
 
-        # 1. 保存 messages.json
-        self._store.save_messages(session_id, self.messages)
+        # 1. 保存 messages.json（若无内容,则不保存）
+        if not self.messages:
+            print("无对话消息，不保存会话。")
+            return self._store.delete_session(session_id)
 
-        # 2. 更新 meta.json
+
+        self._store.save_messages(session_id, self.messages)
+            
+
+        # 2. 更新 meta.json（无条件）
         meta = self._store.load_meta(session_id)
         if meta is None:
             meta = SessionMeta(
                 session_id=session_id,
-                title=title or "新会话",
+                title=title or "Default Session",
                 created_at=now.isoformat(),
                 updated_at=now.isoformat(),
                 project_root="",
@@ -77,18 +82,17 @@ class SessionManager:
         meta.message_count = len(self.messages)
         self._store.save_meta(session_id, meta)
 
-        # 3. 写 memory.md(如果有)
+        # 3. 写 memory.md（可选，失败不影响会话保存）
         if self._memory_manager and self._messages:
-            from skywalker.core import AgentState
-            state = AgentState(
-                messages=self.messages,
-                project_root=meta.project_root,
-            )
-            gate_result = await (self._memory_manager.gate.evaluate(state)
-                                 if self._memory_manager.gate else None)
-            if gate_result and gate_result.passed and gate_result.entries:
-                self._store.save_session_memory(session_id, gate_result.entries)
-            
+            try:
+                gate = self._memory_manager._gate
+                if gate:
+                    gate_result = await gate.evaluate(self.messages)
+                    if gate_result.passed and gate_result.entries:
+                        self._store.save_session_memory(session_id, gate_result.entries)
+            except Exception:
+                pass  # memory.md 写入失败不影响会话保存
+
         return meta
     
     def resume_session(self, session_id: str) -> list[Message]:
@@ -107,6 +111,14 @@ class SessionManager:
             self._current_session_id = None
             self._messages = []
         return self._store.delete_session(session_id)
+
+
+    # 别名，简化调用
+    async def save(self, title: str | None = None) -> SessionMeta:
+        return await self.save_session(title)
+
+    def resume(self, session_id: str) -> list[Message]:
+        return self.resume_session(session_id)
 
             
 

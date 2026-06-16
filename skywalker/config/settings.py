@@ -17,7 +17,7 @@ class Settings:
 
     # 记忆系统配置
     compressor_type: str = "llm"           # "llm" | "subagent"（V5）
-    memory_dir: str = "~/.skywalker"
+    memory_dir: str = "/Alpha/College_new/skywalker_agent/.skywalker"
     project_memory_file: str = "MEMORY.md"
     compress_threshold: float = 0.75       # token 使用率超过此值触发压缩
     max_memory_entries: int = 100          # 单文件最大条目数
@@ -47,8 +47,8 @@ class Settings:
     # 会话配置
     session_auto_save: bool = True
     max_sessions: int = 10
-    session_dir: str = "~/.skywalker/sessions"
-    config_file: str = "~/.skywalker/config.yaml"
+    session_dir: str = "/Alpha/College_new/skywalker_agent/.skywalker/sessions"
+    config_file: str = "/Alpha/College_new/skywalker_agent/.skywalker/config.yaml"
 
     def save(self) -> None:
         """将当前配置写入 config.yaml"""
@@ -83,7 +83,7 @@ class Settings:
         """从 config.yaml 加载配置,不存在返回默认值
             优先级: 环境变量 > config.yaml > 默认值
         """
-        config_path = Path(os.path.expanduser("~/.skywalker/config.yaml"))
+        config_path = Path(os.path.expanduser("/Alpha/College_new/skywalker_agent/.skywalker/config.yaml"))
         settings = cls()
 
         if not config_path.exists():

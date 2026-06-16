@@ -20,14 +20,14 @@ class HelpCommand(CommandBase):
         return CommandResult(output=self.registry.help_text())
 
 
-class Exitcommand(CommandBase):
+class ExitCommand(CommandBase):
     """输入 exit 退出程序 """
     name = "exit"
     description = "退出程序"
     usage = "/exit"
     
     async def execute(self, arguments: list[dict], ctx: AgentState) -> CommandResult:
-        return CommandResult(output="Sayounara!", stop=True)
+        return CommandResult(output="Sayounara!", should_complete=True)
 
 class StatusCommand(CommandBase):
     """输入 status 显示当前会话状态 """
