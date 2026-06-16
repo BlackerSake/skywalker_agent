@@ -68,12 +68,20 @@ class ResumeCommand(SessionActionCommand):
     description = "恢复历史会话"
     usage = "/resume [session_id]"
 
-    async def _action(self, session_id: str) -> CommandResult:
+    async def _action(self, session_id: str, ctx: AgentState) -> CommandResult:
         try:
             messages = self._sm.resume(session_id)
-            return CommandResult(output=f"已恢复会话 {session_id}")
         except FileNotFoundError:
             return CommandResult(output=f"会话不存在: {session_id}")
+        ctx.messages = messages
+        lines = [f"恢复会话: {session_id}, {len(messages)} 条消息\n"]
+        for msg in messages:
+            role = "用户" if msg.role == "user" else "AI"
+            content = msg.content
+            lines.append(f"{role}: {content}")
+
+        return CommandResult(output="\n".join(lines))
+            
 
 
 class DeleteCommand(SessionActionCommand):

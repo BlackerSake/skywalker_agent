@@ -33,12 +33,12 @@ class SessionActionCommand(CommandBase):
     def __init__(self, session_manager: SessionManager):
         self._sm = session_manager
 
-    async def _action(self, session_id: str) -> CommandResult:
+    async def _action(self, session_id: str, ctx: AgentState) -> CommandResult:
         raise NotImplementedError
 
     async def execute(self, args: list[str], ctx: AgentState) -> CommandResult:
         if args:
-            return await self._action(args[0])
+            return await self._action(args[0], ctx)
 
         sessions = self._sm.list_sessions()
         if not sessions:
@@ -48,7 +48,7 @@ class SessionActionCommand(CommandBase):
         if session_id is None:
             return CommandResult(output="已取消")
 
-        return await self._action(session_id)
+        return await self._action(session_id, ctx)
 
     async def _pick(self, sessions: list) -> str | None:
 

@@ -30,8 +30,10 @@ class SessionManager:
     
     def new_session(self, project_root: str) -> str:
         """创建 新会话 ,返回会话ID """
+        import random
         now = datetime.now(timezone.utc)
-        session_id = now.strftime("%Y%m%d%H%M%S")
+        # 加入随机数确保唯一性
+        session_id = now.strftime("%Y%m%d%H%M%S") + f"-{random.randint(1000, 9999)}"
         self._current_session_id = session_id
         self._messages = []
 
