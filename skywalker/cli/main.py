@@ -1,12 +1,13 @@
 import asyncio
 import json
+import logging
 import os
 
-from prompt_toolkit import PromptSession
 from prompt_toolkit.formatted_text import HTML
+from prompt_toolkit.shortcuts import PromptSession
 from rich.console import Console
-from rich.markup import render
 
+from config.logging import setup_logging
 from skywalker.commands.builtin import register_builtin_commands
 from skywalker.commands.registry import CommandRegistry
 from skywalker.session.manager import SessionManager
@@ -25,9 +26,10 @@ from skywalker.memory import (
 from skywalker.tools import (
     FileTool, GitWorkTree, ShellTool, ToolExecutor, ToolRegistry, WebTool,
 )
-from skywalker.ui.input import read_line_with_ctrlz
-from skywalker.ui.render import print_msg, render_message
-from skywalker.ui.input import read_line_with_ctrlz
+from skywalker.ui.input import read_line
+from skywalker.ui.output import OutputRenderer
+
+logger = logging.getLogger("skywalker")
 
 
 console = Console()
@@ -84,7 +86,6 @@ def _init_session(memory_manager: MemoryManager) -> tuple[SessionManager, Comman
     return store, session_manager, registry
 
 
-
 def _build_system_prompt(memory_manager: MemoryManager, registry: ToolRegistry | None = None) -> str:
     """构建系统提示，注入记忆上下文 + tool schema"""
     base_prompt = "你是一个有用的助手。简洁回答问题。"
@@ -100,8 +101,13 @@ def _build_system_prompt(memory_manager: MemoryManager, registry: ToolRegistry |
 
 
 async def main():
-    print_msg("Skywalker Agent", "bold orange1")
-    print(" - 按下 'Ctrl+Z' 退出\n")
+    # 初始化日志系统
+    setup_logging(debug=True)
+    logger.info("=" * 50)
+    logger.info("🚀 Skywalker Agent 启动")
+
+    renderer = OutputRenderer(style="default")
+    renderer.console.print("[bold orange1]Skywalker Agent[/] - 按下 'Ctrl+Z' 退出\n")
 
     project_root = os.getcwd()
     llm = AnthropicClient()
@@ -112,7 +118,7 @@ async def main():
     project_entries = memory_manager._project_memory.load()
     user_entries = memory_manager._user_memory.load()
     total = len(project_entries) + len(user_entries)
-    print_msg(f"已加载 {total} 条记忆（项目：{len(project_entries)}，用户：{len(user_entries)}）\n", "dim")
+    renderer.console.print(f"[dim]已加载 {total} 条记忆（项目：{len(project_entries)}，用户：{len(user_entries)}）[/]\n")
 
     # 初始化会话管理器
     conv_manager = ConversationManager(
@@ -129,15 +135,15 @@ async def main():
 
     # 初始化会话状态和命令系统
     store, session_manager, command_registry = _init_session(memory_manager)
-    
+
     # 新建会话
     session_id = session_manager.new_session(project_root)
-    print_msg(f"已创建会话 {session_id}\n", "dim")
+    renderer.console.print(f"[dim]已创建会话 {session_id}[/]\n")
 
     state = AgentState(project_root=project_root)
 
     while True:
-        user_input = await read_line_with_ctrlz(HTML("<ansiblue><b>You:</b></ansiblue> "))
+        user_input = await read_line(HTML("<ansiblue><b>You:</b></ansiblue> "))
         if user_input is None:
             # Ctrl+Z 退出：保存会话 + 记忆
             await session_manager.save_session()
@@ -188,6 +194,9 @@ async def main():
         state.messages.append(user_msg)
         session_manager.add_message(user_msg)
 
+        # 显示 Thinking Spinner
+        renderer.show_thinking()
+
         # 运行 loop（内部处理 LLM 调用、工具执行、压缩检查）
         state = await run_loop(
             state, llm, user_input,
@@ -196,17 +205,16 @@ async def main():
             system_prompt=system_prompt,
             registry=registry,
             executor=executor,
+            on_event=renderer.render_event,  # 事件回调
         )
 
         if state.current_response:
             # 同步 assistant 回复到 session_manager
             assistant_msg = Message(Role.ASSISTANT, state.current_response)
             session_manager.add_message(assistant_msg)
-            print_msg("Agent: ", "bold cyan")
-            print(f"{state.current_response}\n")
 
         if state.loop_state.error:
-            print_msg(f"Error: {state.loop_state.error}\n\n", "bold red")
+            renderer.console.print(f"[bold red]Error: {state.loop_state.error}[/]\n")
 
 
 def cli_main():

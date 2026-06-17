@@ -18,7 +18,7 @@ _BINDINGS = _create_bindings()
 _SESSION = PromptSession()
 
 
-async def read_line_with_ctrlz(prompt_text: str) -> str | None:
+async def read_line(prompt_text: str) -> str | None:
     """使用 prompt_toolkit 异步读取输入，支持退格、方向键、Ctrl+Z 退出"""
     try:
         result = await _SESSION.prompt_async(prompt_text, key_bindings=_BINDINGS)
