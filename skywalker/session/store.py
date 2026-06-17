@@ -8,8 +8,7 @@ import shutil
 from skywalker.core import Message, Role
 from skywalker.memory.base import MemoryEntry
 from skywalker.memory.schema import parse_memory_md, serialize_memory_md
-
-
+import logging
 
 @dataclass
 class SessionMeta:
@@ -68,6 +67,7 @@ class SessionStore:
         """从文件加载会话消息，不存在返回空列表"""
         path = self._base_dir / session_id / "messages.json"
         if not path.exists():
+            logging.warning(f"Session {session_id} not found")
             return []
         data = json.loads(path.read_text(encoding="utf-8"))
         return [

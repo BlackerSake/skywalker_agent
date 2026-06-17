@@ -4,8 +4,8 @@ import os
 
 from prompt_toolkit import PromptSession
 from prompt_toolkit.formatted_text import HTML
-from prompt_toolkit.key_binding import KeyBindings
 from rich.console import Console
+from rich.markup import render
 
 from skywalker.commands.builtin import register_builtin_commands
 from skywalker.commands.registry import CommandRegistry
@@ -25,6 +25,10 @@ from skywalker.memory import (
 from skywalker.tools import (
     FileTool, GitWorkTree, ShellTool, ToolExecutor, ToolRegistry, WebTool,
 )
+from skywalker.ui.input import read_line_with_ctrlz
+from skywalker.ui.render import print_msg, render_message
+from skywalker.ui.input import read_line_with_ctrlz
+
 
 console = Console()
 session = PromptSession()
@@ -38,50 +42,6 @@ MAX_TOKENS = 8000
 
 # Ctrl+Z 退出的标记
 _CTRL_Z_PRESSED = object()
-
-
-def _create_bindings() -> KeyBindings:
-    """创建按键绑定：Ctrl+Z 退出"""
-    bindings = KeyBindings()
-
-    @bindings.add("c-z")
-    def _(event):
-        event.app.exit(result=_CTRL_Z_PRESSED)
-
-    return bindings
-
-
-_BINDINGS = _create_bindings()
-
-
-async def read_line_with_ctrlz(prompt_text: str) -> str | None:
-    """使用 prompt_toolkit 异步读取输入，支持退格、方向键、Ctrl+Z 退出"""
-    try:
-        result = await session.prompt_async(prompt_text, key_bindings=_BINDINGS)
-        if result is _CTRL_Z_PRESSED:
-            return None
-        return result
-    except EOFError:
-        return None
-    except KeyboardInterrupt:
-        return None
-
-
-def print_msg(text: str, style: str = ""):
-    """打印消息，支持简单的颜色标记"""
-    colors = {
-        "bold blue": "\033[1;34m",
-        "bold cyan": "\033[1;36m",
-        "bold orange1": "\033[1;33m",
-        "bold red": "\033[1;31m",
-        "dim": "\033[2m",
-    }
-    reset = "\033[0m"
-
-    if style and style in colors:
-        print(f"{colors[style]}{text}{reset}", end="")
-    else:
-        print(text, end="")
 
 
 def _init_memory(project_root: str, llm: AnthropicClient):
@@ -208,6 +168,13 @@ async def main():
             result = await command_registry.dispatch(user_input, state)
             if result.output:
                 print(result.output)
+
+            # 恢复会话后同步 conv_manager
+            if result.resumed_messages is not None:
+                conv_manager.clear()
+                for msg in result.resumed_messages:
+                    conv_manager.add_message(msg)
+
             if not result.should_complete:
                 break
             continue

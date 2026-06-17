@@ -8,12 +8,15 @@ from prompt_toolkit import PromptSession
 from prompt_toolkit.completion import WordCompleter
 from prompt_toolkit.formatted_text import HTML
 from prompt_toolkit.key_binding import KeyBindings
-from prompt_toolkit.application import get_app
+from skywalker.ui.picker import pick_session
+from skywalker.core import Message
+
 @dataclass
 class CommandResult:
     """命令执行结果"""
     output: str
     should_complete: bool = True
+    resumed_messages: list[Message] | None = None
 
 class CommandBase(ABC):
     """所有命令的抽象基类"""
@@ -44,52 +47,8 @@ class SessionActionCommand(CommandBase):
         if not sessions:
             return CommandResult(output="没有历史会话")
 
-        session_id = await self._pick(sessions)
+        session_id = await pick_session(sessions)
         if session_id is None:
             return CommandResult(output="已取消")
 
         return await self._action(session_id, ctx)
-
-    async def _pick(self, sessions: list) -> str | None:
-
-        current = [0]
-
-        def render():
-            lines = ["\n历史会话（↑↓ 切换，回车确认，ESC/q 取消，或直接输入 session_id）：\n"]
-            for i, s in enumerate(sessions):
-                prefix = " > " if i == current[0] else "   "
-                row = f"{prefix}{s.title}  ({s.message_count} 条)"
-                lines.append(f"\033[7m{row}\033[0m" if i == current[0] else row)
-            print("\033[2J\033[H" + "\n".join(lines), end="", flush=True)
-
-        render()
-        kb = KeyBindings()
-
-        @kb.add("up")
-        def _up(event):
-            current[0] = (current[0] - 1) % len(sessions)
-            render()
-
-        @kb.add("down")
-        def _down(event):
-            current[0] = (current[0] + 1) % len(sessions)
-            render()
-
-        @kb.add("escape")
-        @kb.add("q")
-        def _cancel(event):
-            event.app.exit(result=None)
-
-        @kb.add("enter")
-        def _confirm(event):
-            buf = event.app.current_buffer.text.strip()
-            event.app.exit(result=buf if buf else sessions[current[0]].session_id)
-
-        ps = PromptSession(
-            key_bindings=kb,
-            completer=WordCompleter([s.session_id for s in sessions], ignore_case=True),
-        )
-        try:
-            return await ps.prompt_async(HTML("<ansigreen>session_id:</ansigreen> "))
-        except (EOFError, KeyboardInterrupt):
-            return None
