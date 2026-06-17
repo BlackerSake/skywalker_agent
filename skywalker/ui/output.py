@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from tabnanny import verbose
 from rich.console import Console
 from rich.live import Live
 from rich.markdown import Markdown
@@ -56,6 +57,8 @@ class OutputRenderer:
         self._spinner_status: Status | None = None
         self._live: Live | None = None
         self._streaming_started: bool = False  # 是否已开始流式输出
+        self._verbose = verbose
+        self._tool_calls: list[str] = [] # 记录工具调用
 
     def render_event(self, event: StreamEvent) -> None:
         """根据事件类型分发渲染"""
@@ -87,7 +90,12 @@ class OutputRenderer:
 
     def _render_agent_turn_complete(self, event: AgentTurnComplete) -> None:
         """Agent 回复完成"""
-        # 换行
+        if self._tool_calls and not self._verbose:
+            summary = self._summarize_tool_calls(self._tool_calls)
+            self.console.print(f"  ⏵ {summary}", style="dim")
+            self._tool_calls = []
+            
+        
         self.console.print()
 
         # 重置状态
@@ -97,25 +105,25 @@ class OutputRenderer:
     def _render_tool_execution_started(self, event: ToolExecutionStarted) -> None:
         """工具开始执行"""
         self._last_tool_input = event.tool_input
-        self.console.print(f"  ⏵ {event.tool_name}", style="yellow", end="")
+        # 记录工具调用
+        self._tool_calls.append(event.tool_name)
 
-        if event.tool_input:
-            summary = self._summarize_tool_input(event.tool_name, event.tool_input)
-            if summary:
-                self.console.print(f"  {summary}", style="dim")
+        if self._verbose:
+            self.console.print(f"  ⏵ {event.tool_name}", style="yellow", end="")
+
+            if event.tool_input:
+                summary = self._summarize_tool_input(event.tool_name, event.tool_input)
+                if summary:
+                    self.console.print(f"  {summary}", style="dim")
+                else:
+                    self.console.print()
             else:
                 self.console.print()
-        else:
-            self.console.print()
 
     def _render_tool_execution_completed(self, event: ToolExecutionCompleted) -> None:
         """工具执行完成"""
-        # exit_code 已经在工具输出中，不再重复打印
-
-        if self._style_name == "default":
+        if self._verbose:
             self._render_tool_output(event.tool_name, self._last_tool_input, event.output)
-        else:
-            self.console.print(event.output)
 
         self._last_tool_input = None
 
@@ -145,6 +153,12 @@ class OutputRenderer:
     def _render_compact_progress_event(self, event: CompactProgressEvent) -> None:
         """压缩进度提示"""
         self.console.print(f"[dim]{event.message}[/dim]")
+    
+    def _summarize_tool_calls(self, calls: list[str]) -> str:
+        from collections import Counter
+        counts = Counter(calls)
+        parts = [f"{name} x {n}" if n > 1 else name for name, n in counts.items()]
+        return f"调用了 {len(calls)} 个工具（{'，'.join(parts)}）"
 
 
     @staticmethod
