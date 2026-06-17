@@ -1,13 +1,13 @@
 from __future__ import annotations
 
-from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from rich.console import Console
+from rich.live import Live
 from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.syntax import Syntax
 from rich.status import Status
-from typing import Literal
+
 
 @dataclass
 class StreamEvent:
@@ -42,59 +42,60 @@ class CompactProgressEvent(StreamEvent):
     """压缩进度提示"""
     message: str
 
+
 class OutputRenderer:
     """输出渲染器"""
+
     def __init__(self, style: str = "default"):
         self.console = Console()
-        self._style_name = style  # "default" | "minimal" 渲染风格,全功能或纯文本
+        self._style_name = style  # "default" | "minimal"
 
         # 状态管理
         self._agent_buffer: str = ""  # 缓存完整回复
-        self._agent_line_open: bool = False  # 是否正在输出 agent 行
-        self._last_tool_input: dict | None = None  # 最近一次工具输入
-        self._spinner_status: Status | None = None  # Spinner 状态
+        self._last_tool_input: dict | None = None
+        self._spinner_status: Status | None = None
+        self._live: Live | None = None
+        self._streaming_started: bool = False  # 是否已开始流式输出
 
     def render_event(self, event: StreamEvent) -> None:
-        """根据事件类型 分发渲染"""
+        """根据事件类型分发渲染"""
         if isinstance(event, AgentTextStreaming):
             self._render_agent_text_streaming(event)
-
         elif isinstance(event, AgentTurnComplete):
             self._render_agent_turn_complete(event)
-
         elif isinstance(event, ToolExecutionStarted):
+            self._stop_spinner()
             self._render_tool_execution_started(event)
-
         elif isinstance(event, ToolExecutionCompleted):
             self._render_tool_execution_completed(event)
-
         elif isinstance(event, CompactProgressEvent):
+            self._stop_spinner()
             self._render_compact_progress_event(event)
 
     def _render_agent_text_streaming(self, event: AgentTextStreaming) -> None:
-        """流式输出 agent 回复"""
-        if not self._agent_line_open:
-            # 首次输出, 打印 ⎆ 作为前缀 
+        """流式输出 Agent 回复"""
+        # 首次收到文本时，停止 spinner，打印前缀
+        if not self._streaming_started:
+            self._stop_spinner()
+            self._streaming_started = True
+            self.console.print("Agent: ", end="", style="bold cyan")
             self.console.print("⎆ ", end="", style="cyan")
-            self._agent_line_open = True
-        self._agent_buffer += event.text
-        # 逐字打印 agent 输出
-        self.console.print(event.text, end="", markup=False, highlight=False)
-    
 
+        # 逐字符输出，实现打字机效果
+        self._agent_buffer += event.text
+        self.console.print(event.text, end="", markup=False, highlight=False)
 
     def _render_agent_turn_complete(self, event: AgentTurnComplete) -> None:
-        """输出 agent 回复完成"""
-        if self._agent_line_open:
-            self.console.print() # 打印换行符
-            self._agent_line_open = False
-        # 检测markdown语法
-        if self._style_name == "default" and self._has_markdown(self._agent_buffer):
-            self.console.print(Markdown(self._agent_buffer))
-        self._agent_buffer = "" # 清空缓存
+        """Agent 回复完成"""
+        # 换行
+        self.console.print()
+
+        # 重置状态
+        self._agent_buffer = ""
+        self._streaming_started = False
 
     def _render_tool_execution_started(self, event: ToolExecutionStarted) -> None:
-        """tool 开始执行"""
+        """工具开始执行"""
         self._last_tool_input = event.tool_input
         self.console.print(f"  ⏵ {event.tool_name}", style="yellow", end="")
 
@@ -106,11 +107,10 @@ class OutputRenderer:
                 self.console.print()
         else:
             self.console.print()
-        
+
     def _render_tool_execution_completed(self, event: ToolExecutionCompleted) -> None:
-        """tool 执行完成"""
-        if event.exit_code is not None:
-            self.console.print(f"    exit_code: {event.exit_code}", style="dim")
+        """工具执行完成"""
+        # exit_code 已经在工具输出中，不再重复打印
 
         if self._style_name == "default":
             self._render_tool_output(event.tool_name, self._last_tool_input, event.output)
@@ -118,13 +118,14 @@ class OutputRenderer:
             self.console.print(event.output)
 
         self._last_tool_input = None
+
     def _render_tool_output(self, tool_name: str, tool_input: dict | None, output: str) -> None:
-        """tool 输出 的差异化 的渲染"""
+        """工具输出差异化渲染"""
         lower = tool_name.lower()
 
-        if lower == "bash":
+        if lower in ("bash", "shell"):
             cmd = tool_input.get("command", "") if tool_input else ""
-            self.console.print(Panel(output, title=f"Bash: {cmd}", border_style="blue"))
+            self.console.print(Panel(output, title=f"Shell: {cmd}", border_style="blue"))
 
         elif lower in ("read", "fileread"):
             file_path = tool_input.get("file_path", "") if tool_input else ""
@@ -148,12 +149,13 @@ class OutputRenderer:
 
     @staticmethod
     def _has_markdown(text: str) -> bool:
-        """判断字符串是否包含 markdown 语法"""
+        """检测文本是否包含 Markdown 语法"""
         indicators = ["```", "## ", "### ", "- ", "* ", "1. ", "**", "__", "> "]
         return any(ind in text for ind in indicators)
+
     @staticmethod
     def _guess_lexer(file_path: str) -> str:
-        """根据文件的扩展名 猜测代码语言"""
+        """根据文件扩展名猜测语法高亮语言"""
         ext_map = {
             ".py": "python", ".js": "javascript", ".ts": "typescript",
             ".jsx": "jsx", ".tsx": "tsx", ".rs": "rust", ".go": "go",
@@ -166,9 +168,10 @@ class OutputRenderer:
             if file_path.endswith(ext):
                 return lexer
         return "text"
+
     @staticmethod
     def _summarize_tool_input(tool_name: str, tool_input: dict) -> str:
-        """根据工具输入 生成摘要"""
+        """生成工具输入的简短摘要"""
         if tool_name.lower() == "bash":
             return tool_input.get("command", "")
         elif tool_name.lower() in ("read", "fileread"):
@@ -178,12 +181,13 @@ class OutputRenderer:
         return ""
 
     def show_thinking(self) -> None:
-        """显示思考中 Thinking Spinner"""
+        """显示 Thinking Spinner"""
         if self._style_name == "default":
             self._spinner_status = self.console.status(
                 "[cyan]Thinking...[/cyan]", spinner="dots"
             )
             self._spinner_status.start()
+
     def _stop_spinner(self) -> None:
         """停止 Spinner"""
         if self._spinner_status:
