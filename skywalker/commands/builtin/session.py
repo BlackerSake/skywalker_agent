@@ -13,10 +13,10 @@ class SaveCommand(CommandBase):
     def __init__(self, session_manager: SessionManager):
         self.session_manager = session_manager
 
-    async def execute(self, args: list[dict], ctx: AgentState) -> CommandResult:
+    async def execute(self, args: list[str], ctx: AgentState) -> CommandResult:
         """保存当前会话"""
-        title = "".join(args) if args else None
-        meta = await self.session_manager.save()
+        title = " ".join(args) if args else None
+        meta = await self.session_manager.save(title=title)
         return CommandResult(output=f"保存成功：{meta.session_id} ({meta.title})")
 
 class ListCommand(CommandBase):
@@ -89,7 +89,7 @@ class DeleteCommand(SessionActionCommand):
     description = "删除历史会话"
     usage = "/delete [session_id]"
 
-    async def _action(self, session_id: str) -> CommandResult:
+    async def _action(self, session_id: str, ctx: AgentState) -> CommandResult:
         if self._sm.delete_session(session_id):
             return CommandResult(output=f"已删除会话: {session_id}")
         return CommandResult(output=f"会话不存在: {session_id}")

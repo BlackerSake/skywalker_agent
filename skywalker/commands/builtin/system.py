@@ -42,8 +42,8 @@ class StatusCommand(CommandBase):
             f"项目目录: {ctx.project_root}",
             f"消息数量: {len(ctx.messages)}"
         ]
-        if self._session_manager:
-            sid = self.session_manager.current_session_id()
+        if self.session_manager:
+            sid = self.session_manager.current_session_id
             lines.append(f"当前会话: {sid or '无'}")
         
         total_tokens = SimpleTokenizer.estimate_total_tokens(ctx.messages)
