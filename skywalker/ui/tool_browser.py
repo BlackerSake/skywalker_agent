@@ -147,6 +147,7 @@ class ToolBrowser:
 
     def _read_key(self) -> str:
         """读取按键"""
+        import os
         import select
         import sys
         import termios
@@ -156,26 +157,24 @@ class ToolBrowser:
         old_settings = termios.tcgetattr(fd)
         try:
             tty.setraw(fd)
-            ch = sys.stdin.read(1)
+
+            # 读取第一个字节
+            ch = os.read(fd, 1).decode("utf-8", errors="ignore")
 
             if ch == "\x1b":
-                """用50ms 判断 是否是 ESC 键
-                方向键是多字节连发: \x1b [ A 
-                esc 是 单字节: \x1b
-                """
-                if select.select([sys.stdin], [], [], timeout=0.05)[0]:
-                    ch2 = sys.stdin.read(1)
-                    if ch2 == "[":
-                        ch3 = sys.stdin.read(1)
-                        if ch3 == "A":
-                            return "up"
-                        elif ch3 == "B":
-                            return "down"
+                # ESC 序列：用 select 检查是否有后续字节
+                if select.select([fd], [], [], 0.2)[0]:
+                    # 读取后续字节
+                    rest = os.read(fd, 10).decode("utf-8", errors="ignore")
+                    if rest.startswith("[A") or rest.startswith("OA"):
+                        return "up"
+                    elif rest.startswith("[B") or rest.startswith("OB"):
+                        return "down"
                 else:
-                    # 没有后续字符 → 单独 ESC
+                    # 无后续 → 单独 ESC
                     return "esc"
 
-            elif ch == "\r":
+            elif ch == "\r" or ch == "\n":
                 return "enter"
             elif ch == "\x0f":  # Ctrl+O
                 return "esc"

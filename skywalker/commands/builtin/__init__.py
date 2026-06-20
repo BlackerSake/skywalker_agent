@@ -17,7 +17,10 @@ from skywalker.session.manager import SessionManager
 
 
 
-def register_builtin_commands(registry, session_manager=None, memory_manager=None):
+def register_builtin_commands(registry: CommandRegistry,
+                              session_manager: SessionManager | None = None, 
+                              memory_manager: MemoryManager | None = None,
+                              console = None):
     # 系统命令
     registry.register(HelpCommand(registry))
     registry.register(ExitCommand())
@@ -26,11 +29,11 @@ def register_builtin_commands(registry, session_manager=None, memory_manager=Non
     # 会话命令
     if session_manager:
         registry.register(SaveCommand(session_manager))
-        registry.register(ListCommand(session_manager))
-        registry.register(ResumeCommand(session_manager))
-        registry.register(DeleteCommand(session_manager))
+        registry.register(ListCommand(session_manager,console))
+        registry.register(ResumeCommand(session_manager,console))
+        registry.register(DeleteCommand(session_manager,console))
         registry.register(RenameCommand(session_manager))
 
     # 记忆命令
     if memory_manager:
-        registry.register(MemoryCommand(memory_manager))
+        registry.register(MemoryCommand(memory_manager,console))

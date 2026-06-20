@@ -4,7 +4,7 @@ from skywalker.commands.base import CommandBase, CommandResult, SessionActionCom
 from skywalker.core import AgentState
 from skywalker.session.manager import SessionManager
 from skywalker.ui.render import render_messages
-
+from skywalker.ui.list_browser import ListBrowser, ListItem
 
 class SaveCommand(CommandBase):
     """手动保存当前会话(用于调试,正常流程会自动触发)"""
@@ -27,18 +27,26 @@ class ListCommand(CommandBase):
     name = "list"
     description = "列出所有会话"
     usage = "/list"
-    def __init__(self, session_manager: SessionManager):
+    def __init__(self, session_manager: SessionManager,console):
         self.session_manager = session_manager
+        self._console = console
 
     async def execute(self, args: list[dict], ctx: AgentState) -> CommandResult:
         """列出所有会话"""
         sessions = self.session_manager.list_sessions()
         if not sessions:
             return CommandResult(output="没有历史会话")
-        lines = ["历史会话:"]
-        for s in sessions[:10]:
-            lines.append(f"{s.session_id} {s.title} , ({s.message_count} 条消息)")
-        return CommandResult(output="\n".join(lines))
+        items = [ListItem(
+            id = s.session_id,
+            title = s.title,
+            subtitle = f"{s.message_count} 条消息 {s.updated_at[:16] }",
+            detail= f"ID: {s.session_id}\n项目:{s.project_root}"
+        )for s in sessions]
+        # 打开浏览器(只读)
+        browser = ListBrowser(console=self._console)
+        browser.run(items,title="会话列表")
+        return CommandResult(output="")
+    
 
 class RenameCommand(CommandBase):
     """重命名当前会话"""
@@ -70,21 +78,38 @@ class ResumeCommand(SessionActionCommand):
     description = "恢复历史会话"
     usage = "/resume [session_id]"
 
+    def __init__(self, session_manager: SessionManager, console):
+        super().__init__(session_manager)
+        self._console = console
+
     async def _action(self, session_id: str, ctx: AgentState) -> CommandResult:
         try:
             messages = self._sm.resume(session_id)
+            return CommandResult(
+                output=f"已恢复会话: {session_id},共 {len(messages)} 条消息",
+                resumed_messages=messages
+                )
         except FileNotFoundError:
             return CommandResult(output=f"会话不存在: {session_id}")
 
-        # 同步到 state.messages，让 LLM 能看到历史
-        ctx.messages = messages
-        render_messages(messages)
-
-        return CommandResult(
-            output=f"已恢复会话: {session_id}，共 {len(messages)} 条消息",
-            resumed_messages=messages,
-        )
-            
+    async def execute(self, args: list[str], ctx: AgentState) -> CommandResult:
+        # 恢复指定会话,若有参数
+        if args:
+            return await self._action(args[0], ctx)
+        # 否则列出所有会话
+        sessions = self._sm.list_sessions()
+        if not sessions:
+            return CommandResult(output="没有历史会话")
+        items = [ListItem(
+            id = s.session_id,
+            title = s.title,
+            subtitle = f"{s.message_count} 条消息 {s.updated_at[:16] }"
+            )for s in sessions]
+        browser = ListBrowser(console=self._console)
+        selected = browser.run(items,title="选择会话恢复")
+        if selected:
+            return await self._action(selected.id, ctx)
+        return CommandResult(output="取消")           
 
 
 class DeleteCommand(SessionActionCommand):
@@ -92,10 +117,34 @@ class DeleteCommand(SessionActionCommand):
     description = "删除历史会话"
     usage = "/delete [session_id]"
 
+    def __init__(self, session_manager: SessionManager, console):
+        super().__init__(session_manager)
+        self._console = console
+
     async def _action(self, session_id: str, ctx: AgentState) -> CommandResult:
         if self._sm.delete_session(session_id):
             return CommandResult(output=f"已删除会话: {session_id}")
         return CommandResult(output=f"会话不存在: {session_id}")
+    
+    async def execute(self, args: list[str], ctx: AgentState) -> CommandResult:
+        # 删除指定会话,若有参数
+        if args:
+            return await self._action(args[0], ctx)
+        # 否则列出所有会话
+        sessions = self._sm.list_sessions()
+        if not sessions:
+            return CommandResult(output="没有历史会话")
+        items = [ListItem(
+            id = s.session_id,
+            title = s.title,
+            subtitle = f"{s.message_count} 条消息 {s.updated_at[:16] }"
+            )for s in sessions]
+        browser = ListBrowser(console=self._console)
+        selected = browser.run(items,title="选择会话删除")
+        if selected:
+            return await self._action(selected.id, ctx)
+        return CommandResult(output="取消")
+    
 
 
 

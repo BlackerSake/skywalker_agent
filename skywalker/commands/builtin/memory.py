@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from skywalker.ui.list_browser import ListBrowser, ListItem
+
 from skywalker.commands.base import CommandBase, CommandResult
 from skywalker.core import AgentState
 from skywalker.memory.long_term import MemoryManager
@@ -12,8 +14,9 @@ class MemoryCommand(CommandBase):
     description = "管理记忆（list/search/clear）"
     usage = "/memory <list|search|clear> [query]"
 
-    def __init__(self, memory_manager: MemoryManager):
+    def __init__(self, memory_manager: MemoryManager, console):
         self._mm = memory_manager
+        self._console = console
 
     async def execute(self, args: list[str], ctx: AgentState) -> CommandResult:
         if not args:
@@ -37,17 +40,30 @@ class MemoryCommand(CommandBase):
         """列出所有记忆条目"""
         project_entries = self._mm._project_memory.load()
         user_entries = self._mm._user_memory.load()
+        
+        items = []
+        # 添加项目记忆
+        for e in project_entries:
+            items.append(ListItem(
+                id = e.id,
+                title = f"[{e.type.value}] {e.content[:60]}",
+                subtitle = f"重要性: {e.importance}",
+                detail = e.content
+            ))
+        # 添加用户记忆
+        for e in user_entries:
+            items.append(ListItem(
+                id = e.id,
+                title = f"[{e.type.value}] {e.content[:60]}",
+                subtitle = f"重要性: {e.importance}",
+                detail = e.content
+            ))
 
-        lines = [f"项目记忆 ({len(project_entries)} 条):"]
-        for e in project_entries[:10]:
-            lines.append(f"  [{e.type.value}] {e.content[:60]}")
-
-        lines.append(f"\n用户记忆 ({len(user_entries)} 条):")
-        for e in user_entries[:10]:
-            lines.append(f"  [{e.type.value}] {e.content[:60]}")
-
-        return CommandResult(output="\n".join(lines))
-
+        if not items:
+            return CommandResult(output="没有记忆")
+        browser = ListBrowser(console=self._console)
+        browser.run(items, title=f"项目记忆(项目: {len(project_entries)},用户: {len(user_entries)})")
+        return CommandResult(output="")
     def _search(self, query: str) -> CommandResult:
         """关键词搜索记忆"""
         if not query:
@@ -57,10 +73,17 @@ class MemoryCommand(CommandBase):
         if not results:
             return CommandResult(output=f"未找到与 '{query}' 相关的记忆")
 
-        lines = [f"搜索结果（{len(results)} 条）:"]
-        for e in results:
-            lines.append(f"  [{e.type.value}] {e.content[:80]}")
-        return CommandResult(output="\n".join(lines))
+        items = [
+            ListItem(
+                id = e.id,
+                title = f"[{e.type.value}] {e.content[:60]}",
+                subtitle = f"重要性: {e.importance}",
+                detail = e.content
+            ) for e in results
+        ]
+        browser = ListBrowser(console=self._console)
+        browser.run(items, title=f"搜索结果{query}")
+        return CommandResult(output="")
 
     def _clear(self) -> CommandResult:
         """清空项目记忆"""

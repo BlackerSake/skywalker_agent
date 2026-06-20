@@ -68,7 +68,10 @@ def _init_memory(project_root: str, llm: AnthropicClient):
     return memory_manager, compressor
 
 
-def _init_tools(project_root: str) -> tuple[ToolRegistry, ToolExecutor]:
+def _init_tools(
+    project_root: str,
+    confirm_callback=None,
+) -> tuple[ToolRegistry, ToolExecutor]:
     """初始化工具系统"""
     registry = ToolRegistry()
     registry.register(FileTool())
@@ -76,15 +79,15 @@ def _init_tools(project_root: str) -> tuple[ToolRegistry, ToolExecutor]:
     registry.register(WebTool())
 
     sandbox = GitWorkTree(project_root) if settings.sandbox_enabled else None
-    executor = ToolExecutor(sandbox=sandbox)
+    executor = ToolExecutor(sandbox=sandbox, confirm_callback=confirm_callback)
     return registry, executor
 
-def _init_session(memory_manager: MemoryManager) -> tuple[SessionManager, CommandRegistry]:
+def _init_session(memory_manager, console):
     """初始化会话系统 和 命令系统"""
     store = SessionStore()
     session_manager = SessionManager(store, memory_manager)
     registry = CommandRegistry()
-    register_builtin_commands(registry, session_manager, memory_manager)
+    register_builtin_commands(registry, session_manager, memory_manager, console)
 
     return store, session_manager, registry
 
@@ -137,14 +140,34 @@ async def main():
         compress_threshold=COMPRESS_THRESHOLD,
     )
 
+    # 定义确认回调：停止所有渲染，请求用户确认
+    def ask_user_confirm(cmd: str) -> bool:
+        import sys
+        renderer._stop_spinner()
+        # 停止 ToolPanel 的 Live
+        if tool_panel._live:
+            tool_panel._live.stop()
+            tool_panel._live = None
+        # 强制刷新输出
+        sys.stdout.flush()
+        sys.stderr.flush()
+        renderer.console.print()
+        renderer.console.print(f"[bold yellow]⚠️  Agent 想要运行:[/] {cmd}")
+        renderer.console.print("[dim]输入 y 并按回车确认，其他键拒绝[/]")
+        try:
+            confirm = input("> ").strip().lower()
+            return confirm == "y"
+        except (EOFError, KeyboardInterrupt):
+            return False
+
     # 初始化工具
-    registry, executor = _init_tools(project_root)
+    registry, executor = _init_tools(project_root, confirm_callback=ask_user_confirm)
 
     # 构建带记忆和工具的系统提示
     system_prompt = _build_system_prompt(memory_manager, registry)
 
     # 初始化会话状态和命令系统
-    store, session_manager, command_registry = _init_session(memory_manager)
+    store, session_manager, command_registry = _init_session(memory_manager, renderer.console)
 
     # 新建会话
     session_id = session_manager.new_session(project_root)
