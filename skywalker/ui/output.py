@@ -59,10 +59,15 @@ class OutputRenderer:
 
         # 工具子界面（外部注入）
         self._tool_panel: ToolPanel | None = None
+        self._tool_log = None  # 工具日志（用于内联 diff 显示）
 
     def set_tool_panel(self, panel):
         """注入工具子界面"""
         self._tool_panel = panel
+
+    def set_tool_log(self, tool_log):
+        """注入工具日志（用于内联 diff 显示）"""
+        self._tool_log = tool_log
 
     def render_event(self, event: StreamEvent) -> None:
         """根据事件类型分发渲染"""
@@ -75,15 +80,24 @@ class OutputRenderer:
         elif isinstance(event, ToolExecutionStarted):
             self._stop_spinner()
             if self._tool_panel:
+                # 用递增 ID 确保唯一
+                if not hasattr(self, '_tool_counter'):
+                    self._tool_counter = 0
+                    self._tool_ids = {}  # tool_name -> tool_id 映射
+                self._tool_counter += 1
+                tool_id = f"{event.tool_name}_{self._tool_counter}"
+                self._tool_ids[event.tool_name] = tool_id
                 self._tool_panel.open(
-                    tool_id=event.tool_name,
+                    tool_id=tool_id,
                     tool_name=event.tool_name,
                     tool_input=event.tool_input,
                 )
 
         elif isinstance(event, ToolExecutionCompleted):
-            if self._tool_panel:
-                self._tool_panel.close(tool_id=event.tool_name)
+            if self._tool_panel and hasattr(self, '_tool_ids'):
+                tool_id = self._tool_ids.get(event.tool_name)
+                if tool_id:
+                    self._tool_panel.close(tool_id=tool_id)
 
         elif isinstance(event, CompactProgressEvent):
             self._stop_spinner()
@@ -103,6 +117,10 @@ class OutputRenderer:
                     from rich.text import Text
                     self.console.print(Text(f"  ⏵ {summary}", style="dim"))
 
+            # 显示编辑 diff 片段
+            if self._tool_log:
+                self._render_edit_clips()
+
             # 保存光标位置（在 "Agent: " 之前）
             self._save_cursor_position()
             self.console.print("Agent: ", end="", style="bold cyan")
@@ -111,6 +129,47 @@ class OutputRenderer:
         # 流式输出
         self._agent_buffer += event.text
         self.console.print(event.text, end="", markup=False, highlight=False)
+
+    def _render_edit_clips(self):
+        """显示最近一轮的编辑 diff 片段"""
+        from skywalker.ui.diff_clip import render_diff_clip
+
+        records = self._tool_log.get_all()
+        if not records:
+            return
+
+        # 找最近 10 条记录中的编辑操作
+        edit_records = []
+        for r in records[-10:]:
+            # file 工具的 write_file 操作
+            if (r.tool_name == "file"
+                and r.tool_input
+                and r.tool_input.get("action") == "write_file"):
+                edit_records.append(r)
+            # 或者输出中包含 diff 格式
+            elif r.output and r.output.startswith("---"):
+                edit_records.append(r)
+
+        if not edit_records:
+            return
+
+        for r in edit_records:
+            # 获取文件路径
+            path = ""
+            if r.tool_input:
+                path = r.tool_input.get("path", "") or r.tool_input.get("file_path", "")
+
+            if r.output.startswith("---"):
+                # 有 diff：显示片段
+                self.console.print()
+                if path:
+                    self.console.print(f"    # {path}", style="dim")
+                render_diff_clip(self.console, r.output, context_lines=3)
+            elif path:
+                # 新建文件或无 diff：简短提示
+                lines = r.output.count("\n") + 1
+                self.console.print()
+                self.console.print(f"    # {path} (Created {lines} lines)", style="dim")
 
     def _render_agent_turn_complete(self, event: AgentTurnComplete) -> None:
         """Agent 回复完成 → 用 MD 重新渲染"""

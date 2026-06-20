@@ -1,13 +1,9 @@
-
----
-
-## 一、整体作用
-
-`OutputRenderer` 负责将 **Agent 执行过程中的各类事件（流式文本、工具调用、压缩进度等）** 渲染到终端，提供**结构化、可读性高、视觉友好**的交互体验。
-
-它本质上是一个**事件驱动的渲染器**——接收 `StreamEvent` 对象，根据事件类型决定如何输出。
-
----
+2026年 06月 20日 星期六 17:54:45 CST
+2026年 06月 20日 星期六 17:54:45 CST
+2026年 06月 20日 星期六 17:54:45 CST
+mimo不如deepseek
+mimo不如deepseek
+mimo不如deepseek
 
 ## 二、设计亮点
 
@@ -146,3 +142,4 @@ model: claude-3-sonnet │ tokens: 1.2k↓ 0.8k↑ │ mode: default
 | 事件驱动 | `isinstance()` 分发 + 缓存状态 |
 
 这个渲染器适合直接**集成到 Skywalker Agent 的 CLI 界面**，只需将 `StreamEvent` 从 `run_loop` 传递到 `OutputRenderer.render_event()` 即可。
+deepseek不如mimo

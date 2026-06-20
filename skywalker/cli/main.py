@@ -29,7 +29,7 @@ from skywalker.tools import (
 from skywalker.ui.input import read_line, set_toggle_callback
 from skywalker.ui.output import OutputRenderer
 from skywalker.ui.tool_panel import ToolPanel
-from skywalker.ui.tool_browser import ToolBrowser
+from skywalker.ui.list_browser import ListBrowser, ListItem
 from skywalker.session.tool_log import ToolLog
 
 logger = logging.getLogger("skywalker")
@@ -117,9 +117,6 @@ async def main():
     tool_panel = ToolPanel(console=renderer.console)
     renderer.set_tool_panel(tool_panel)
 
-    # 初始化工具日志浏览器（稍后设置回调）
-    tool_browser = ToolBrowser(console=renderer.console)
-
     renderer.console.print("[bold orange1]Skywalker Agent[/] - 按下 'Ctrl+Z' 退出，'Ctrl+O' 查看工具历史\n")
 
     project_root = os.getcwd()
@@ -144,20 +141,21 @@ async def main():
     def ask_user_confirm(cmd: str) -> bool:
         import sys
         renderer._stop_spinner()
-        # 停止 ToolPanel 的 Live
-        if tool_panel._live:
-            tool_panel._live.stop()
-            tool_panel._live = None
+        # 暂停 ToolPanel，保存状态
+        tool_panel.pause()
         # 强制刷新输出
         sys.stdout.flush()
         sys.stderr.flush()
         renderer.console.print()
-        renderer.console.print(f"[bold yellow]⚠️  Agent 想要运行:[/] {cmd}")
+        renderer.console.print(f"[bold red]⚠️  Agent 想要运行:[/] {cmd}")
         renderer.console.print("[dim]输入 y 并按回车确认，其他键拒绝[/]")
         try:
             confirm = input("> ").strip().lower()
+            # 恢复 ToolPanel，从保存的状态继续
+            tool_panel.resume()
             return confirm == "y"
         except (EOFError, KeyboardInterrupt):
+            tool_panel.resume()
             return False
 
     # 初始化工具
@@ -176,10 +174,18 @@ async def main():
     # 初始化工具日志
     session_dir = store._base_dir / session_id
     tool_log = ToolLog(session_dir=session_dir)
+    renderer.set_tool_log(tool_log)
 
     # 设置 Ctrl+O 回调：打开工具历史浏览器
     def open_tool_browser():
-        tool_browser.run(tool_log)
+        records = tool_log.get_all()
+        if not records:
+            renderer.console.print("[dim]暂无工具调用记录[/]")
+            return
+
+        items = [ListItem.from_tool_record(r) for r in records]
+        browser = ListBrowser(console=renderer.console)
+        browser.run(items, title="工具调用记录")
 
     set_toggle_callback(open_tool_browser)
 
