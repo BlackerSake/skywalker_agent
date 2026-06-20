@@ -26,8 +26,11 @@ from skywalker.memory import (
 from skywalker.tools import (
     FileTool, GitWorkTree, ShellTool, ToolExecutor, ToolRegistry, WebTool,
 )
-from skywalker.ui.input import read_line
+from skywalker.ui.input import read_line, set_toggle_callback
 from skywalker.ui.output import OutputRenderer
+from skywalker.ui.tool_panel import ToolPanel
+from skywalker.ui.tool_browser import ToolBrowser
+from skywalker.session.tool_log import ToolLog
 
 logger = logging.getLogger("skywalker")
 
@@ -106,8 +109,15 @@ async def main():
     logger.info("=" * 50)
     logger.info("🚀 Skywalker Agent 启动")
 
+    # 初始化渲染器和工具子界面
     renderer = OutputRenderer(style="default")
-    renderer.console.print("[bold orange1]Skywalker Agent[/] - 按下 'Ctrl+Z' 退出\n")
+    tool_panel = ToolPanel(console=renderer.console)
+    renderer.set_tool_panel(tool_panel)
+
+    # 初始化工具日志浏览器（稍后设置回调）
+    tool_browser = ToolBrowser(console=renderer.console)
+
+    renderer.console.print("[bold orange1]Skywalker Agent[/] - 按下 'Ctrl+Z' 退出，'Ctrl+O' 查看工具历史\n")
 
     project_root = os.getcwd()
     llm = AnthropicClient()
@@ -140,16 +150,28 @@ async def main():
     session_id = session_manager.new_session(project_root)
     renderer.console.print(f"[dim]已创建会话 {session_id}[/]\n")
 
+    # 初始化工具日志
+    session_dir = store._base_dir / session_id
+    tool_log = ToolLog(session_dir=session_dir)
+
+    # 设置 Ctrl+O 回调：打开工具历史浏览器
+    def open_tool_browser():
+        tool_browser.run(tool_log)
+
+    set_toggle_callback(open_tool_browser)
+
     state = AgentState(project_root=project_root)
+    turn_index = 0
 
     while True:
         user_input = await read_line(HTML("<ansiblue><b>You:</b></ansiblue> "))
+        saved = None
         if user_input is None:
             # Ctrl+Z 退出：保存会话 + 记忆
             await session_manager.save_session()
-            saved = await memory_manager.on_shutdown(state)
+            # saved = await memory_manager.on_shutdown(state)
             if saved:
-                print("已退出，会话和记忆已保存！")
+                print("已退出，会话和记忆已保存！(跳过保存到MEMORY.md被跳过)")
             else:
                 print("已退出，会话已保存。")
             break
@@ -157,9 +179,9 @@ async def main():
         if user_input.strip().lower() == "exit":
             # exit 退出：保存会话 + 记忆
             await session_manager.save_session()
-            saved = await memory_manager.on_shutdown(state)
+            # saved = await memory_manager.on_shutdown(state)
             if saved:
-                print("会话和记忆已保存！")
+                print("会话和记忆已保存！(保存到MEMORY.md被跳过)")
             else:
                 print("会话已保存。")
             break
@@ -168,7 +190,7 @@ async def main():
             # /exit 直接走退出流程
             if user_input.strip() == "/exit":
                 await session_manager.save_session()
-                saved = await memory_manager.on_shutdown(state)
+                # saved = await memory_manager.on_shutdown(state)
                 print("会话已保存，再见！")
                 break
             result = await command_registry.dispatch(user_input, state)
@@ -196,6 +218,7 @@ async def main():
 
         # 显示 Thinking Spinner
         renderer.show_thinking()
+        turn_index += 1
 
         # 运行 loop（内部处理 LLM 调用、工具执行、压缩检查）
         state = await run_loop(
@@ -206,6 +229,8 @@ async def main():
             registry=registry,
             executor=executor,
             on_event=renderer.render_event,  # 事件回调
+            tool_log=tool_log,               # 工具日志
+            turn_index=turn_index,           # 当前轮次
         )
 
         if state.current_response:

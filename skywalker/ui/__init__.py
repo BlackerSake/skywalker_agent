@@ -10,6 +10,7 @@ from skywalker.ui.output import (
     ToolExecutionCompleted,
     CompactProgressEvent,
 )
+from skywalker.ui.tool_panel import ToolPanel
 
 __all__ = [
     "print_msg",
@@ -24,5 +25,6 @@ __all__ = [
     "ToolExecutionStarted",
     "ToolExecutionCompleted",
     "CompactProgressEvent",
+    "ToolPanel",
 ]
 

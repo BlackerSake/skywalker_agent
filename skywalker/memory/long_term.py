@@ -69,8 +69,9 @@ class MemoryManager:
         self._gate = gate  # MemoryGate 实例，可选
 
     async def on_shutdown(self, state) -> bool:
-        """对话结束时, 通过 Gate 过滤后写回记忆。返回是否实际保存了记忆。"""
-        from skywalker.core import Message, Role
+        """(被注释掉了)对话结束时, 通过 Gate 过滤后写回记忆。返回是否实际保存了记忆。"""
+        logger.warning("⚠️ 保存记忆被跳过")
+        """        from skywalker.core import Message, Role
 
         if not state.messages:
             logger.debug("📭 无消息，跳过记忆保存")
@@ -116,6 +117,7 @@ class MemoryManager:
         )
         self._project_memory.add_entry(project_entry)
         logger.info(f"💾 保存会话摘要 | id={project_entry.id}")
+        """
         return True
     def get_system_context(self) -> str:
         """合并项目记忆和用户记忆为系统提示文本

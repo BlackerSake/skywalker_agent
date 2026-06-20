@@ -1,6 +1,8 @@
 
 import asyncio
 import logging
+import time
+from datetime import datetime, timezone
 from typing import Callable
 
 from skywalker.llm.base import LLMClient, StreamChunk
@@ -34,6 +36,8 @@ async def run_loop(state: AgentState,
                    registry: ToolRegistry | None = None,
                    executor: ToolExecutor | None = None,
                    on_event: EventCallback | None = None,
+                   tool_log=None,  # ToolLog 实例，可选
+                   turn_index: int = 0,
                    ) -> AgentState:
     """运行完整的对话循环，支持多轮 Think→Act→Observe"""
 
@@ -84,8 +88,13 @@ async def run_loop(state: AgentState,
             # 有工具调用 → 执行
             state.loop_state.phase = LoopPhase.EXECUTING
             logger.info(f"⚙️ Phase: EXECUTING | tools={[tc.name for tc in tool_calls]}")
+
+            # 记录开始时间
+            tool_start_times = {}
+
             for tc in tool_calls:
                 logger.debug(f"  ⏵ {tc.name} | input={tc.arguments}")
+                tool_start_times[tc.id] = time.monotonic()
                 if on_event:
                     on_event(ToolExecutionStarted(tool_name=tc.name, tool_input=tc.arguments))
 
@@ -95,11 +104,27 @@ async def run_loop(state: AgentState,
 
             for tc, result in zip(tool_calls, results):
                 output = result.output if isinstance(result, ToolResult) else f"Error: {result.error}"
+                exit_code = 0 if isinstance(result, ToolResult) else 1
+
                 if on_event:
                     on_event(ToolExecutionCompleted(
                         tool_name=tc.name,
                         output=output,
-                        exit_code=0 if isinstance(result, ToolResult) else 1,
+                        exit_code=exit_code,
+                    ))
+
+                # 写入 tool_log
+                if tool_log:
+                    duration_ms = int((time.monotonic() - tool_start_times.get(tc.id, 0)) * 1000)
+                    from skywalker.session.tool_log import ToolCallRecord
+                    tool_log.append(ToolCallRecord(
+                        turn_index=turn_index,
+                        tool_name=tc.name,
+                        tool_input=tc.arguments,
+                        output=output,
+                        exit_code=exit_code,
+                        started_at=datetime.now(timezone.utc).isoformat(),
+                        duration_ms=duration_ms,
                     ))
 
             # 构造 assistant 消息（text + tool_use blocks）

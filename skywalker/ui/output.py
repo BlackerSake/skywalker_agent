@@ -1,14 +1,15 @@
+
+"""Agent 文本流式输出渲染器"""
+
 from __future__ import annotations
 
+import sys
 from dataclasses import dataclass
-from tabnanny import verbose
-from rich.console import Console
-from rich.live import Live
-from rich.markdown import Markdown
-from rich.panel import Panel
-from rich.syntax import Syntax
-from rich.status import Status
 
+from rich.console import Console
+from rich.markdown import Markdown
+from rich.status import Status
+from skywalker.ui.tool_panel import ToolPanel
 
 @dataclass
 class StreamEvent:
@@ -45,7 +46,7 @@ class CompactProgressEvent(StreamEvent):
 
 
 class OutputRenderer:
-    """输出渲染器"""
+    """Agent 文本流式输出渲染器"""
 
     def __init__(self, style: str = "default"):
         self.console = Console()
@@ -53,146 +54,99 @@ class OutputRenderer:
 
         # 状态管理
         self._agent_buffer: str = ""  # 缓存完整回复
-        self._last_tool_input: dict | None = None
         self._spinner_status: Status | None = None
-        self._live: Live | None = None
         self._streaming_started: bool = False  # 是否已开始流式输出
-        self._verbose = verbose
-        self._tool_calls: list[str] = [] # 记录工具调用
+
+        # 工具子界面（外部注入）
+        self._tool_panel: ToolPanel | None = None
+
+    def set_tool_panel(self, panel):
+        """注入工具子界面"""
+        self._tool_panel = panel
 
     def render_event(self, event: StreamEvent) -> None:
         """根据事件类型分发渲染"""
         if isinstance(event, AgentTextStreaming):
             self._render_agent_text_streaming(event)
+
         elif isinstance(event, AgentTurnComplete):
             self._render_agent_turn_complete(event)
+
         elif isinstance(event, ToolExecutionStarted):
             self._stop_spinner()
-            self._render_tool_execution_started(event)
+            if self._tool_panel:
+                self._tool_panel.open(
+                    tool_id=event.tool_name,
+                    tool_name=event.tool_name,
+                    tool_input=event.tool_input,
+                )
+
         elif isinstance(event, ToolExecutionCompleted):
-            self._render_tool_execution_completed(event)
+            if self._tool_panel:
+                self._tool_panel.close(tool_id=event.tool_name)
+
         elif isinstance(event, CompactProgressEvent):
             self._stop_spinner()
-            self._render_compact_progress_event(event)
+            self.console.print(f"[dim]{event.message}[/dim]")
 
     def _render_agent_text_streaming(self, event: AgentTextStreaming) -> None:
         """流式输出 Agent 回复"""
-        # 首次收到文本时，停止 spinner，打印前缀
+        # 首次收到文本时，停止 spinner，关闭工具子界面，保存光标位置
         if not self._streaming_started:
             self._stop_spinner()
             self._streaming_started = True
+
+            # 关闭工具子界面，打印摘要
+            if self._tool_panel:
+                summary = self._tool_panel.close_all()
+                if summary:
+                    from rich.text import Text
+                    self.console.print(Text(f"  ⏵ {summary}", style="dim"))
+
+            # 保存光标位置（在 "Agent: " 之前）
+            self._save_cursor_position()
             self.console.print("Agent: ", end="", style="bold cyan")
             self.console.print("⎆ ", end="", style="cyan")
 
-        # 逐字符输出，实现打字机效果
+        # 流式输出
         self._agent_buffer += event.text
         self.console.print(event.text, end="", markup=False, highlight=False)
 
     def _render_agent_turn_complete(self, event: AgentTurnComplete) -> None:
-        """Agent 回复完成"""
-        if self._tool_calls and not self._verbose:
-            summary = self._summarize_tool_calls(self._tool_calls)
-            self.console.print(f"  ⏵ {summary}", style="dim")
-            self._tool_calls = []
-            
-        
-        self.console.print()
+        """Agent 回复完成 → 用 MD 重新渲染"""
+        # 恢复光标位置
+        self._restore_cursor_position()
+        # 清除从光标到屏幕末尾
+        self._clear_from_cursor()
 
-        # 重置状态
+        # 重新打印带 MD 渲染的内容
+        self.console.print("Agent: ", end="", style="bold cyan")
+        self.console.print("⎆ ", end="", style="cyan")
+        self.console.print(Markdown(self._agent_buffer))
+
+        # 重置
         self._agent_buffer = ""
         self._streaming_started = False
 
-    def _render_tool_execution_started(self, event: ToolExecutionStarted) -> None:
-        """工具开始执行"""
-        self._last_tool_input = event.tool_input
-        # 记录工具调用
-        self._tool_calls.append(event.tool_name)
-
-        if self._verbose:
-            self.console.print(f"  ⏵ {event.tool_name}", style="yellow", end="")
-
-            if event.tool_input:
-                summary = self._summarize_tool_input(event.tool_name, event.tool_input)
-                if summary:
-                    self.console.print(f"  {summary}", style="dim")
-                else:
-                    self.console.print()
-            else:
-                self.console.print()
-
-    def _render_tool_execution_completed(self, event: ToolExecutionCompleted) -> None:
-        """工具执行完成"""
-        if self._verbose:
-            self._render_tool_output(event.tool_name, self._last_tool_input, event.output)
-
-        self._last_tool_input = None
-
-    def _render_tool_output(self, tool_name: str, tool_input: dict | None, output: str) -> None:
-        """工具输出差异化渲染"""
-        lower = tool_name.lower()
-
-        if lower in ("bash", "shell"):
-            cmd = tool_input.get("command", "") if tool_input else ""
-            self.console.print(Panel(output, title=f"Shell: {cmd}", border_style="blue"))
-
-        elif lower in ("read", "fileread"):
-            file_path = tool_input.get("file_path", "") if tool_input else ""
-            lexer = self._guess_lexer(file_path)
-            if len(output) > 2000:
-                output = output[:2000] + "\n... (truncated)"
-            self.console.print(Syntax(output, lexer, theme="monokai"))
-
-        elif lower in ("edit", "fileedit"):
-            self.console.print(Panel(output, title="Edit", border_style="green"))
-
-        else:
-            if len(output) > 1000:
-                output = output[:1000] + "\n... (truncated)"
-            self.console.print(output)
-
-    def _render_compact_progress_event(self, event: CompactProgressEvent) -> None:
-        """压缩进度提示"""
-        self.console.print(f"[dim]{event.message}[/dim]")
-    
-    def _summarize_tool_calls(self, calls: list[str]) -> str:
-        from collections import Counter
-        counts = Counter(calls)
-        parts = [f"{name} x {n}" if n > 1 else name for name, n in counts.items()]
-        return f"调用了 {len(calls)} 个工具（{'，'.join(parts)}）"
-
 
     @staticmethod
-    def _has_markdown(text: str) -> bool:
-        """检测文本是否包含 Markdown 语法"""
-        indicators = ["```", "## ", "### ", "- ", "* ", "1. ", "**", "__", "> "]
-        return any(ind in text for ind in indicators)
+    def _save_cursor_position():
+        """保存光标位置"""
+        sys.stdout.write("\033[s")
+        sys.stdout.flush()
 
     @staticmethod
-    def _guess_lexer(file_path: str) -> str:
-        """根据文件扩展名猜测语法高亮语言"""
-        ext_map = {
-            ".py": "python", ".js": "javascript", ".ts": "typescript",
-            ".jsx": "jsx", ".tsx": "tsx", ".rs": "rust", ".go": "go",
-            ".java": "java", ".c": "c", ".cpp": "cpp", ".h": "c",
-            ".rb": "ruby", ".php": "php", ".sh": "bash", ".yaml": "yaml",
-            ".yml": "yaml", ".json": "json", ".md": "markdown",
-            ".html": "html", ".css": "css", ".sql": "sql",
-        }
-        for ext, lexer in ext_map.items():
-            if file_path.endswith(ext):
-                return lexer
-        return "text"
+    def _restore_cursor_position():
+        """恢复光标位置"""
+        sys.stdout.write("\033[u")
+        sys.stdout.flush()
 
     @staticmethod
-    def _summarize_tool_input(tool_name: str, tool_input: dict) -> str:
-        """生成工具输入的简短摘要"""
-        if tool_name.lower() == "bash":
-            return tool_input.get("command", "")
-        elif tool_name.lower() in ("read", "fileread"):
-            return f"file_path={tool_input.get('file_path', '')}"
-        elif tool_name.lower() in ("edit", "fileedit"):
-            return f"file_path={tool_input.get('file_path', '')}"
-        return ""
+    def _clear_from_cursor():
+        """从光标位置开始清除屏幕"""
+        sys.stdout.write("\033[J")
+        sys.stdout.flush()
+
 
     def show_thinking(self) -> None:
         """显示 Thinking Spinner"""
