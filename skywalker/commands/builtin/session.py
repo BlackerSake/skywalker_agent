@@ -3,6 +3,8 @@ from __future__ import annotations
 from skywalker.commands.base import CommandBase, CommandResult, SessionActionCommand
 from skywalker.core import AgentState
 from skywalker.session.manager import SessionManager
+from skywalker.ui.render import render_messages
+
 
 class SaveCommand(CommandBase):
     """手动保存当前会话(用于调试,正常流程会自动触发)"""
@@ -73,14 +75,15 @@ class ResumeCommand(SessionActionCommand):
             messages = self._sm.resume(session_id)
         except FileNotFoundError:
             return CommandResult(output=f"会话不存在: {session_id}")
-        ctx.messages = messages
-        lines = [f"恢复会话: {session_id}, {len(messages)} 条消息\n"]
-        for msg in messages:
-            role = "用户" if msg.role == "user" else "AI"
-            content = msg.content
-            lines.append(f"{role}: {content}")
 
-        return CommandResult(output="\n".join(lines))
+        # 同步到 state.messages，让 LLM 能看到历史
+        ctx.messages = messages
+        render_messages(messages)
+
+        return CommandResult(
+            output=f"已恢复会话: {session_id}，共 {len(messages)} 条消息",
+            resumed_messages=messages,
+        )
             
 
 

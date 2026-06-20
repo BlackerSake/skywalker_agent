@@ -118,3 +118,8 @@ class ConversationManager:
         """获取并返回总token使用计数"""
         return self._total_tokens
 
+    def clear(self) -> None:
+        """清空消息列表和 token 计数"""
+        self._messages.clear()
+        self._total_tokens = 0
+

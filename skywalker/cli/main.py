@@ -1,12 +1,13 @@
 import asyncio
 import json
+import logging
 import os
 
-from prompt_toolkit import PromptSession
 from prompt_toolkit.formatted_text import HTML
-from prompt_toolkit.key_binding import KeyBindings
+from prompt_toolkit.shortcuts import PromptSession
 from rich.console import Console
 
+from config.logging import setup_logging
 from skywalker.commands.builtin import register_builtin_commands
 from skywalker.commands.registry import CommandRegistry
 from skywalker.session.manager import SessionManager
@@ -25,6 +26,14 @@ from skywalker.memory import (
 from skywalker.tools import (
     FileTool, GitWorkTree, ShellTool, ToolExecutor, ToolRegistry, WebTool,
 )
+from skywalker.ui.input import read_line, set_toggle_callback
+from skywalker.ui.output import OutputRenderer
+from skywalker.ui.tool_panel import ToolPanel
+from skywalker.ui.tool_browser import ToolBrowser
+from skywalker.session.tool_log import ToolLog
+
+logger = logging.getLogger("skywalker")
+
 
 console = Console()
 session = PromptSession()
@@ -38,50 +47,6 @@ MAX_TOKENS = 8000
 
 # Ctrl+Z 退出的标记
 _CTRL_Z_PRESSED = object()
-
-
-def _create_bindings() -> KeyBindings:
-    """创建按键绑定：Ctrl+Z 退出"""
-    bindings = KeyBindings()
-
-    @bindings.add("c-z")
-    def _(event):
-        event.app.exit(result=_CTRL_Z_PRESSED)
-
-    return bindings
-
-
-_BINDINGS = _create_bindings()
-
-
-async def read_line_with_ctrlz(prompt_text: str) -> str | None:
-    """使用 prompt_toolkit 异步读取输入，支持退格、方向键、Ctrl+Z 退出"""
-    try:
-        result = await session.prompt_async(prompt_text, key_bindings=_BINDINGS)
-        if result is _CTRL_Z_PRESSED:
-            return None
-        return result
-    except EOFError:
-        return None
-    except KeyboardInterrupt:
-        return None
-
-
-def print_msg(text: str, style: str = ""):
-    """打印消息，支持简单的颜色标记"""
-    colors = {
-        "bold blue": "\033[1;34m",
-        "bold cyan": "\033[1;36m",
-        "bold orange1": "\033[1;33m",
-        "bold red": "\033[1;31m",
-        "dim": "\033[2m",
-    }
-    reset = "\033[0m"
-
-    if style and style in colors:
-        print(f"{colors[style]}{text}{reset}", end="")
-    else:
-        print(text, end="")
 
 
 def _init_memory(project_root: str, llm: AnthropicClient):
@@ -124,7 +89,6 @@ def _init_session(memory_manager: MemoryManager) -> tuple[SessionManager, Comman
     return store, session_manager, registry
 
 
-
 def _build_system_prompt(memory_manager: MemoryManager, registry: ToolRegistry | None = None) -> str:
     """构建系统提示，注入记忆上下文 + tool schema"""
     base_prompt = "你是一个有用的助手。简洁回答问题。"
@@ -140,8 +104,20 @@ def _build_system_prompt(memory_manager: MemoryManager, registry: ToolRegistry |
 
 
 async def main():
-    print_msg("Skywalker Agent", "bold orange1")
-    print(" - 按下 'Ctrl+Z' 退出\n")
+    # 初始化日志系统
+    setup_logging(debug=True)
+    logger.info("=" * 50)
+    logger.info("🚀 Skywalker Agent 启动")
+
+    # 初始化渲染器和工具子界面
+    renderer = OutputRenderer(style="default")
+    tool_panel = ToolPanel(console=renderer.console)
+    renderer.set_tool_panel(tool_panel)
+
+    # 初始化工具日志浏览器（稍后设置回调）
+    tool_browser = ToolBrowser(console=renderer.console)
+
+    renderer.console.print("[bold orange1]Skywalker Agent[/] - 按下 'Ctrl+Z' 退出，'Ctrl+O' 查看工具历史\n")
 
     project_root = os.getcwd()
     llm = AnthropicClient()
@@ -152,7 +128,7 @@ async def main():
     project_entries = memory_manager._project_memory.load()
     user_entries = memory_manager._user_memory.load()
     total = len(project_entries) + len(user_entries)
-    print_msg(f"已加载 {total} 条记忆（项目：{len(project_entries)}，用户：{len(user_entries)}）\n", "dim")
+    renderer.console.print(f"[dim]已加载 {total} 条记忆（项目：{len(project_entries)}，用户：{len(user_entries)}）[/]\n")
 
     # 初始化会话管理器
     conv_manager = ConversationManager(
@@ -169,21 +145,33 @@ async def main():
 
     # 初始化会话状态和命令系统
     store, session_manager, command_registry = _init_session(memory_manager)
-    
+
     # 新建会话
     session_id = session_manager.new_session(project_root)
-    print_msg(f"已创建会话 {session_id}\n", "dim")
+    renderer.console.print(f"[dim]已创建会话 {session_id}[/]\n")
+
+    # 初始化工具日志
+    session_dir = store._base_dir / session_id
+    tool_log = ToolLog(session_dir=session_dir)
+
+    # 设置 Ctrl+O 回调：打开工具历史浏览器
+    def open_tool_browser():
+        tool_browser.run(tool_log)
+
+    set_toggle_callback(open_tool_browser)
 
     state = AgentState(project_root=project_root)
+    turn_index = 0
 
     while True:
-        user_input = await read_line_with_ctrlz(HTML("<ansiblue><b>You:</b></ansiblue> "))
+        user_input = await read_line(HTML("<ansiblue><b>You:</b></ansiblue> "))
+        saved = None
         if user_input is None:
             # Ctrl+Z 退出：保存会话 + 记忆
             await session_manager.save_session()
-            saved = await memory_manager.on_shutdown(state)
+            # saved = await memory_manager.on_shutdown(state)
             if saved:
-                print("已退出，会话和记忆已保存！")
+                print("已退出，会话和记忆已保存！(跳过保存到MEMORY.md被跳过)")
             else:
                 print("已退出，会话已保存。")
             break
@@ -191,9 +179,9 @@ async def main():
         if user_input.strip().lower() == "exit":
             # exit 退出：保存会话 + 记忆
             await session_manager.save_session()
-            saved = await memory_manager.on_shutdown(state)
+            # saved = await memory_manager.on_shutdown(state)
             if saved:
-                print("会话和记忆已保存！")
+                print("会话和记忆已保存！(保存到MEMORY.md被跳过)")
             else:
                 print("会话已保存。")
             break
@@ -202,12 +190,19 @@ async def main():
             # /exit 直接走退出流程
             if user_input.strip() == "/exit":
                 await session_manager.save_session()
-                saved = await memory_manager.on_shutdown(state)
+                # saved = await memory_manager.on_shutdown(state)
                 print("会话已保存，再见！")
                 break
             result = await command_registry.dispatch(user_input, state)
             if result.output:
                 print(result.output)
+
+            # 恢复会话后同步 conv_manager
+            if result.resumed_messages is not None:
+                conv_manager.clear()
+                for msg in result.resumed_messages:
+                    conv_manager.add_message(msg)
+
             if not result.should_complete:
                 break
             continue
@@ -221,6 +216,10 @@ async def main():
         state.messages.append(user_msg)
         session_manager.add_message(user_msg)
 
+        # 显示 Thinking Spinner
+        renderer.show_thinking()
+        turn_index += 1
+
         # 运行 loop（内部处理 LLM 调用、工具执行、压缩检查）
         state = await run_loop(
             state, llm, user_input,
@@ -229,17 +228,18 @@ async def main():
             system_prompt=system_prompt,
             registry=registry,
             executor=executor,
+            on_event=renderer.render_event,  # 事件回调
+            tool_log=tool_log,               # 工具日志
+            turn_index=turn_index,           # 当前轮次
         )
 
         if state.current_response:
             # 同步 assistant 回复到 session_manager
             assistant_msg = Message(Role.ASSISTANT, state.current_response)
             session_manager.add_message(assistant_msg)
-            print_msg("Agent: ", "bold cyan")
-            print(f"{state.current_response}\n")
 
         if state.loop_state.error:
-            print_msg(f"Error: {state.loop_state.error}\n\n", "bold red")
+            renderer.console.print(f"[bold red]Error: {state.loop_state.error}[/]\n")
 
 
 def cli_main():
