@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+from rich.markdown import Markdown
+
 from skywalker.commands.base import CommandBase, CommandResult, SessionActionCommand
-from skywalker.core import AgentState
+from skywalker.core import AgentState, Role
 from skywalker.session.manager import SessionManager
 from skywalker.ui.render import render_messages
 from skywalker.ui.list_browser import ListBrowser, ListItem
@@ -85,10 +87,21 @@ class ResumeCommand(SessionActionCommand):
     async def _action(self, session_id: str, ctx: AgentState) -> CommandResult:
         try:
             messages = self._sm.resume(session_id)
+
+            # 渲染历史消息
+            self._console.print(f"\n[dim]已恢复会话 {session_id}，共 {len(messages)} 条消息[/]\n")
+            for msg in messages:
+                if msg.role == Role.USER:
+                    self._console.print(f"[bold blue]You:[/] {msg.text_content}")
+                elif msg.role == Role.ASSISTANT:
+                    self._console.print("[bold cyan]Agent:[/] ", end="")
+                    self._console.print(Markdown(msg.text_content))
+            self._console.print()
+
             return CommandResult(
-                output=f"已恢复会话: {session_id},共 {len(messages)} 条消息",
-                resumed_messages=messages
-                )
+                output="",
+                resumed_messages=messages,
+            )
         except FileNotFoundError:
             return CommandResult(output=f"会话不存在: {session_id}")
 
