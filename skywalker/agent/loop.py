@@ -105,6 +105,7 @@ async def run_loop(state: AgentState,
             for tc, result in zip(tool_calls, results):
                 output = result.output if isinstance(result, ToolResult) else f"Error: {result.error}"
                 exit_code = 0 if isinstance(result, ToolResult) else 1
+                diff = result.diff if isinstance(result, ToolResult) else None
 
                 if on_event:
                     on_event(ToolExecutionCompleted(
@@ -125,6 +126,7 @@ async def run_loop(state: AgentState,
                         exit_code=exit_code,
                         started_at=datetime.now(timezone.utc).isoformat(),
                         duration_ms=duration_ms,
+                        diff=diff,
                     ))
 
             # 构造 assistant 消息（text + tool_use blocks）

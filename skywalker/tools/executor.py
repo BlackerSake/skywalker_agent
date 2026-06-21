@@ -7,6 +7,7 @@ import asyncio
 import logging
 import re
 import time
+from typing import Callable
 
 from skywalker.tools.base import ToolBase, ToolResult, ToolError
 from skywalker.tools.registry import ToolRegistry
@@ -16,12 +17,20 @@ from skywalker.llm.base import ToolCall
 
 logger = logging.getLogger("skywalker.tools")
 
+# 确认回调类型：接收命令字符串，返回是否允许
+ConfirmCallback = Callable[[str], bool]
+
 
 class ToolExecutor:
     """工具执行的三层防护入口：AST 拦截 → 权限确认 → 执行"""
 
-    def __init__(self, sandbox: GitWorkTree | None = None):
+    def __init__(
+        self,
+        sandbox: GitWorkTree | None = None,
+        confirm_callback: ConfirmCallback | None = None,
+    ):
         self.sandbox = sandbox
+        self._confirm = confirm_callback
 
     async def run_all(
             self, tool_calls: list[ToolCall], registry: ToolRegistry
@@ -60,9 +69,8 @@ class ToolExecutor:
                 )
             if self._check_ask(cmd):
                 logger.warning(f"⚠️ 命令需要确认: {cmd}")
-                print(f"\n⚠️  Agent 想要运行: {cmd}")
-                confirm = input("Allow? (y/n): ").strip().lower()
-                if confirm != "y":
+                # 通过回调请求确认
+                if self._confirm and not self._confirm(cmd):
                     logger.info(f"🚫 用户拒绝执行: {cmd}")
                     return ToolError(
                         tool_call_id=tool_call.id,

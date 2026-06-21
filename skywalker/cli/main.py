@@ -29,7 +29,7 @@ from skywalker.tools import (
 from skywalker.ui.input import read_line, set_toggle_callback
 from skywalker.ui.output import OutputRenderer
 from skywalker.ui.tool_panel import ToolPanel
-from skywalker.ui.tool_browser import ToolBrowser
+from skywalker.ui.list_browser import ListBrowser, ListItem
 from skywalker.session.tool_log import ToolLog
 
 logger = logging.getLogger("skywalker")
@@ -68,7 +68,10 @@ def _init_memory(project_root: str, llm: AnthropicClient):
     return memory_manager, compressor
 
 
-def _init_tools(project_root: str) -> tuple[ToolRegistry, ToolExecutor]:
+def _init_tools(
+    project_root: str,
+    confirm_callback=None,
+) -> tuple[ToolRegistry, ToolExecutor]:
     """初始化工具系统"""
     registry = ToolRegistry()
     registry.register(FileTool())
@@ -76,15 +79,15 @@ def _init_tools(project_root: str) -> tuple[ToolRegistry, ToolExecutor]:
     registry.register(WebTool())
 
     sandbox = GitWorkTree(project_root) if settings.sandbox_enabled else None
-    executor = ToolExecutor(sandbox=sandbox)
+    executor = ToolExecutor(sandbox=sandbox, confirm_callback=confirm_callback)
     return registry, executor
 
-def _init_session(memory_manager: MemoryManager) -> tuple[SessionManager, CommandRegistry]:
+def _init_session(memory_manager, console):
     """初始化会话系统 和 命令系统"""
     store = SessionStore()
     session_manager = SessionManager(store, memory_manager)
     registry = CommandRegistry()
-    register_builtin_commands(registry, session_manager, memory_manager)
+    register_builtin_commands(registry, session_manager, memory_manager, console)
 
     return store, session_manager, registry
 
@@ -114,9 +117,6 @@ async def main():
     tool_panel = ToolPanel(console=renderer.console)
     renderer.set_tool_panel(tool_panel)
 
-    # 初始化工具日志浏览器（稍后设置回调）
-    tool_browser = ToolBrowser(console=renderer.console)
-
     renderer.console.print("[bold orange1]Skywalker Agent[/] - 按下 'Ctrl+Z' 退出，'Ctrl+O' 查看工具历史\n")
 
     project_root = os.getcwd()
@@ -137,14 +137,35 @@ async def main():
         compress_threshold=COMPRESS_THRESHOLD,
     )
 
+    # 定义确认回调：停止所有渲染，请求用户确认
+    def ask_user_confirm(cmd: str) -> bool:
+        import sys
+        renderer._stop_spinner()
+        # 暂停 ToolPanel，保存状态
+        tool_panel.pause()
+        # 强制刷新输出
+        sys.stdout.flush()
+        sys.stderr.flush()
+        renderer.console.print()
+        renderer.console.print(f"[bold red]⚠️  Agent 想要运行:[/] {cmd}")
+        renderer.console.print("[dim]输入 y 并按回车确认，其他键拒绝[/]")
+        try:
+            confirm = input("> ").strip().lower()
+            # 恢复 ToolPanel，从保存的状态继续
+            tool_panel.resume()
+            return confirm == "y"
+        except (EOFError, KeyboardInterrupt):
+            tool_panel.resume()
+            return False
+
     # 初始化工具
-    registry, executor = _init_tools(project_root)
+    registry, executor = _init_tools(project_root, confirm_callback=ask_user_confirm)
 
     # 构建带记忆和工具的系统提示
     system_prompt = _build_system_prompt(memory_manager, registry)
 
     # 初始化会话状态和命令系统
-    store, session_manager, command_registry = _init_session(memory_manager)
+    store, session_manager, command_registry = _init_session(memory_manager, renderer.console)
 
     # 新建会话
     session_id = session_manager.new_session(project_root)
@@ -153,10 +174,18 @@ async def main():
     # 初始化工具日志
     session_dir = store._base_dir / session_id
     tool_log = ToolLog(session_dir=session_dir)
+    renderer.set_tool_log(tool_log)
 
     # 设置 Ctrl+O 回调：打开工具历史浏览器
     def open_tool_browser():
-        tool_browser.run(tool_log)
+        records = tool_log.get_all()
+        if not records:
+            renderer.console.print("[dim]暂无工具调用记录[/]")
+            return
+
+        items = [ListItem.from_tool_record(r) for r in records]
+        browser = ListBrowser(console=renderer.console)
+        browser.run(items, title="工具调用记录")
 
     set_toggle_callback(open_tool_browser)
 
