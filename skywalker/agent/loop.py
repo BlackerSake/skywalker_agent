@@ -86,6 +86,10 @@ async def run_loop(state: AgentState,
                 return state
 
             # 有工具调用 → 执行
+            # 如果同时有文字回复，先完成文字回复的渲染
+            if full_text and on_event:
+                on_event(AgentTurnComplete(full_text=full_text))
+
             state.loop_state.phase = LoopPhase.EXECUTING
             logger.info(f"⚙️ Phase: EXECUTING | tools={[tc.name for tc in tool_calls]}")
 
