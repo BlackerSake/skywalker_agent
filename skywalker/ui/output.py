@@ -132,44 +132,21 @@ class OutputRenderer:
 
     def _render_edit_clips(self):
         """显示最近一轮的编辑 diff 片段"""
-        from skywalker.ui.diff_clip import render_diff_clip
+        from skywalker.ui.diff_renderer import render_file_diff
 
         records = self._tool_log.get_all()
         if not records:
             return
 
-        # 找最近 10 条记录中的编辑操作
-        edit_records = []
-        for r in records[-10:]:
-            # file 工具的 write_file 操作
-            if (r.tool_name == "file"
-                and r.tool_input
-                and r.tool_input.get("action") == "write_file"):
-                edit_records.append(r)
-            # 或者输出中包含 diff 格式
-            elif r.output and r.output.startswith("---"):
-                edit_records.append(r)
+        # 找最近 10 条记录中有 diff 的操作
+        edit_records = [r for r in records[-10:] if r.diff is not None]
 
         if not edit_records:
             return
 
         for r in edit_records:
-            # 获取文件路径
-            path = ""
-            if r.tool_input:
-                path = r.tool_input.get("path", "") or r.tool_input.get("file_path", "")
-
-            if r.output.startswith("---"):
-                # 有 diff：显示片段
-                self.console.print()
-                if path:
-                    self.console.print(f"    # {path}", style="dim")
-                render_diff_clip(self.console, r.output, context_lines=3)
-            elif path:
-                # 新建文件或无 diff：简短提示
-                lines = r.output.count("\n") + 1
-                self.console.print()
-                self.console.print(f"    # {path} (Created {lines} lines)", style="dim")
+            self.console.print()
+            render_file_diff(self.console, r.diff)
 
     def _render_agent_turn_complete(self, event: AgentTurnComplete) -> None:
         """Agent 回复完成 → 用 MD 重新渲染"""

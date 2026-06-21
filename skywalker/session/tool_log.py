@@ -4,9 +4,13 @@
 from __future__ import annotations
 
 import json
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from skywalker.tools.base import FileDiff
 
 
 @dataclass
@@ -19,6 +23,7 @@ class ToolCallRecord:
     exit_code: int | None = None
     started_at: str = ""     # ISO 8601
     duration_ms: int = 0     # 耗时毫秒
+    diff: FileDiff | None = field(default=None, repr=False)  # 结构化 diff（不持久化）
 
 
 class ToolLog:
@@ -39,9 +44,14 @@ class ToolLog:
                 self._records = []
 
     def _save(self):
-        """保存到文件"""
+        """保存到文件（排除 diff 字段）"""
         self._path.parent.mkdir(parents=True, exist_ok=True)
-        data = [asdict(r) for r in self._records]
+        # 排除 diff 字段（FileDiff 不可序列化）
+        data = []
+        for r in self._records:
+            d = asdict(r)
+            d.pop("diff", None)
+            data.append(d)
         self._path.write_text(
             json.dumps(data, ensure_ascii=False, indent=2),
             encoding="utf-8",
