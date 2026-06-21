@@ -24,8 +24,9 @@ from skywalker.memory import (
     MemoryManager,
 )
 from skywalker.tools import (
-    FileTool, GitWorkTree, ShellTool, ToolExecutor, ToolRegistry, WebTool,
+    ReadFileTool, EditFileTool, GitWorkTree, ShellTool, ToolExecutor, ToolRegistry, WebTool,
 )
+from skywalker.tools.shadow_repo import ShadowRepo
 from skywalker.ui.input import read_line, set_toggle_callback
 from skywalker.ui.output import OutputRenderer
 from skywalker.ui.tool_panel import ToolPanel
@@ -74,12 +75,18 @@ def _init_tools(
 ) -> tuple[ToolRegistry, ToolExecutor]:
     """初始化工具系统"""
     registry = ToolRegistry()
-    registry.register(FileTool())
+    registry.register(ReadFileTool())
+    registry.register(EditFileTool())
     registry.register(ShellTool())
     registry.register(WebTool())
 
     sandbox = GitWorkTree(project_root) if settings.sandbox_enabled else None
-    executor = ToolExecutor(sandbox=sandbox, confirm_callback=confirm_callback)
+    shadow_repo = ShadowRepo(project_root)
+    executor = ToolExecutor(
+        sandbox=sandbox,
+        confirm_callback=confirm_callback,
+        shadow_repo=shadow_repo,
+    )
     return registry, executor
 
 def _init_session(memory_manager, console):
