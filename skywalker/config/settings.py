@@ -30,7 +30,7 @@ class Settings:
 
     # 工具执行配置
     tool_timeout: int = 30 
-    shell_max_output_tokens: int = 5000
+    shell_max_output_tokens: int = 4096  
     sandbox_enabled: bool = True
     sandbox_dir: str = ".skywalker-sandbox"
 

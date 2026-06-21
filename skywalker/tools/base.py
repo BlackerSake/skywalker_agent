@@ -46,7 +46,7 @@ class ToolResult:
     tool_call_id: str
     output: str
     truncated: bool = False
-    diff: FileDiff | None = None   # 结构化 diff，给渲染层用
+    diff: FileDiff | list[FileDiff] | None = None   # 结构化 diff，给渲染层用
 
 
 @dataclass
