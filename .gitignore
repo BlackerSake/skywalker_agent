@@ -1,5 +1,7 @@
 .vscode/
 
+.env
+
 .claude/
 
 .skywalker/
